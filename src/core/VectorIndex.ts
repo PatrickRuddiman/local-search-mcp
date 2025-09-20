@@ -1,7 +1,9 @@
 import Database from 'better-sqlite3';
+import fs from 'fs';
 import path from 'path';
 import { DocumentChunk, VectorIndexStatistics, StorageError } from '../types/index.js';
 import { log } from './Logger.js';
+import { getDataFolder, getMcpPaths } from './PathUtils.js';
 
 // Database row interfaces
 interface DocumentRow {
@@ -39,9 +41,12 @@ export class VectorIndex {
   constructor() {
     log.debug('Initializing VectorIndex');
 
-    const dataFolder = process.env.MCP_DATA_FOLDER || process.cwd();
-    this.dbPath = path.join(dataFolder, 'local-search-index.db');
-    log.debug('VectorIndex database location', { dbPath: this.dbPath });
+    const mcpPaths = getMcpPaths();
+    this.dbPath = mcpPaths.database;
+    log.debug('VectorIndex database location', { 
+      dbPath: this.dbPath,
+      dataFolder: mcpPaths.data 
+    });
 
     this.db = new Database(this.dbPath);
 

@@ -5,6 +5,7 @@ import { SearchService } from './SearchService.js';
 import { FileWatcher } from './FileWatcher.js';
 import { IndexOptions } from '../types/index.js';
 import { log } from './Logger.js';
+import { getDocsFolder, getMcpPaths, ensureDirectoryExists } from './PathUtils.js';
 
 interface RepoDownloadOptions {
   includePatterns?: string[];
@@ -49,19 +50,22 @@ export class RepoService {
     });
 
     try {
-      const tempDir = path.join('./temp', `${repoName}_${Date.now()}`);
-      const outputDir = path.join('./docs', 'repositories', repoName);
+      const mcpPaths = getMcpPaths();
+      const tempDir = path.join(mcpPaths.temp, `${repoName}_${Date.now()}`);
+      const outputDir = path.join(mcpPaths.repositories, repoName);
 
       log.debug('Repository paths configured', {
         tempDir,
         outputDir,
-        repoName
+        repoName,
+        docsFolder: mcpPaths.docs,
+        dataFolder: mcpPaths.data
       });
 
       // Create directories
       const setupTimer = log.time('repo-directories-setup');
-      await fs.mkdir(tempDir, { recursive: true });
-      await fs.mkdir(outputDir, { recursive: true });
+      await ensureDirectoryExists(tempDir, 'Repository temp directory');
+      await ensureDirectoryExists(outputDir, 'Repository output directory');
       setupTimer();
 
       log.debug('Repository directories created successfully');

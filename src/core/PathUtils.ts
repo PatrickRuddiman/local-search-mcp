@@ -1,0 +1,155 @@
+import path from 'path';
+import fs from 'fs';
+import { log } from './Logger.js';
+
+/**
+ * Utility functions for handling MCP folder paths with environment variable support
+ * and platform-specific defaults
+ */
+
+/**
+ * Get the data folder path (for database, logs, and other persistent data)
+ * Uses MCP_DATA_FOLDER environment variable or platform-specific default
+ */
+export function getDataFolder(): string {
+  const envDataFolder = process.env.MCP_DATA_FOLDER;
+  
+  if (envDataFolder) {
+    log.debug('Using MCP_DATA_FOLDER from environment', { path: envDataFolder });
+    return envDataFolder;
+  }
+
+  const defaultPath = getDefaultDataFolder();
+  log.debug('Using default data folder', { path: defaultPath });
+  return defaultPath;
+}
+
+/**
+ * Get the docs folder path (for document storage, repositories, fetched files)
+ * Uses MCP_DOCS_FOLDER environment variable or platform-specific default
+ */
+export function getDocsFolder(): string {
+  const envDocsFolder = process.env.MCP_DOCS_FOLDER;
+  
+  if (envDocsFolder) {
+    log.debug('Using MCP_DOCS_FOLDER from environment', { path: envDocsFolder });
+    return envDocsFolder;
+  }
+
+  const defaultPath = getDefaultDocsFolder();
+  log.debug('Using default docs folder', { path: defaultPath });
+  return defaultPath;
+}
+
+/**
+ * Get platform-specific default data folder
+ * - Linux: ~/.local/share/local-search-mcp
+ * - macOS: ~/Library/Application Support/local-search-mcp  
+ * - Windows: %LOCALAPPDATA%/local-search-mcp
+ */
+function getDefaultDataFolder(): string {
+  const platform = process.platform;
+  const homeDir = process.env.HOME || process.env.USERPROFILE || process.cwd();
+
+  switch (platform) {
+    case 'darwin': // macOS
+      return path.join(homeDir, 'Library', 'Application Support', 'local-search-mcp');
+    
+    case 'win32': // Windows
+      const localAppData = process.env.LOCALAPPDATA || path.join(homeDir, 'AppData', 'Local');
+      return path.join(localAppData, 'local-search-mcp');
+    
+    default: // Linux and others
+      return path.join(homeDir, '.local', 'share', 'local-search-mcp');
+  }
+}
+
+/**
+ * Get platform-specific default docs folder
+ * Uses same base as data folder but with 'docs' subfolder
+ */
+function getDefaultDocsFolder(): string {
+  return path.join(getDefaultDataFolder(), 'docs');
+}
+
+/**
+ * Ensure a directory exists, creating it recursively if needed
+ * @param dirPath Directory path to create
+ * @param description Description for logging
+ */
+export async function ensureDirectoryExists(dirPath: string, description?: string): Promise<void> {
+  try {
+    log.debug(`Ensuring directory exists: ${description || dirPath}`, { path: dirPath });
+    
+    await fs.promises.mkdir(dirPath, { recursive: true });
+    
+    // Verify the directory was created and is accessible
+    const stats = await fs.promises.stat(dirPath);
+    if (!stats.isDirectory()) {
+      throw new Error(`Path exists but is not a directory: ${dirPath}`);
+    }
+    
+    log.debug(`Directory ready: ${description || dirPath}`, { path: dirPath });
+  } catch (error: any) {
+    log.error(`Failed to create directory: ${description || dirPath}`, error, { path: dirPath });
+    throw new Error(`Failed to create directory ${dirPath}: ${error.message}`);
+  }
+}
+
+/**
+ * Initialize all required MCP directories
+ */
+export async function initializeMcpDirectories(): Promise<void> {
+  const timer = log.time('initialize-mcp-directories');
+  
+  try {
+    log.info('Initializing MCP directory structure');
+    
+    const dataFolder = getDataFolder();
+    const docsFolder = getDocsFolder();
+    
+    // Create base directories
+    await ensureDirectoryExists(dataFolder, 'Data folder (database, logs)');
+    await ensureDirectoryExists(docsFolder, 'Docs folder (documents)');
+    
+    // Create docs subdirectories
+    const repositoriesFolder = path.join(docsFolder, 'repositories');
+    const fetchedFolder = path.join(docsFolder, 'fetched');
+    
+    await ensureDirectoryExists(repositoriesFolder, 'Repositories folder');
+    await ensureDirectoryExists(fetchedFolder, 'Fetched files folder');
+    
+    timer();
+    log.info('MCP directory structure initialized successfully', {
+      dataFolder,
+      docsFolder,
+      subdirectories: {
+        repositories: repositoriesFolder,
+        fetched: fetchedFolder
+      }
+    });
+    
+  } catch (error: any) {
+    timer();
+    log.error('Failed to initialize MCP directory structure', error);
+    throw error;
+  }
+}
+
+/**
+ * Get common MCP paths for use throughout the application
+ */
+export function getMcpPaths() {
+  const dataFolder = getDataFolder();
+  const docsFolder = getDocsFolder();
+  
+  return {
+    data: dataFolder,
+    docs: docsFolder,
+    repositories: path.join(docsFolder, 'repositories'),
+    fetched: path.join(docsFolder, 'fetched'),
+    database: path.join(dataFolder, 'local-search-index.db'),
+    logs: path.join(dataFolder, 'local-search-mcp.log'),
+    temp: path.join(dataFolder, 'temp')
+  };
+}

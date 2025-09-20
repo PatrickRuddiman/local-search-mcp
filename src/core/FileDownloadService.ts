@@ -3,6 +3,7 @@ import path from 'path';
 import { SearchService } from './SearchService.js';
 import { FileWatcher } from './FileWatcher.js';
 import { log } from './Logger.js';
+import { getMcpPaths, ensureDirectoryExists } from './PathUtils.js';
 
 interface FileDownloadOptions {
   overwrite?: boolean;
@@ -32,24 +33,27 @@ export class FileDownloadService {
   async downloadFile(
     url: string,
     filename: string,
-    docFolder: string = './docs/fetched',
+    docFolder?: string,
     options: FileDownloadOptions = {}
   ): Promise<any> {
     const timer = log.time(`file-download-${filename}`);
     const operationId = `${filename}_${Date.now()}`;
 
+    // Use provided docFolder or default to MCP fetched folder
+    const targetFolder = docFolder || getMcpPaths().fetched;
+
     log.info('Starting file download operation', {
       operationId,
       url,
       filename,
-      docFolder,
+      docFolder: targetFolder,
       options
     });
 
     try {
-      log.debug('Creating target directory', { operationId, docFolder });
-      // Create target directory
-      await fs.mkdir(docFolder, { recursive: true });
+      log.debug('Creating target directory', { operationId, docFolder: targetFolder });
+      // Create target directory using PathUtils
+      await ensureDirectoryExists(targetFolder, 'File download target directory');
 
       log.debug('Downloading file content from URL', { operationId, url });
       // Download file content
@@ -65,7 +69,7 @@ export class FileDownloadService {
 
       // Sanitize filename
       const safeFilename = this.sanitizeFilename(filename);
-      const filePath = path.join(docFolder, safeFilename);
+      const filePath = path.join(targetFolder, safeFilename);
 
       log.debug('Filename sanitized', {
         operationId,

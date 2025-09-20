@@ -13,6 +13,7 @@ import { RepoService } from './core/RepoService.js';
 import { FileDownloadService } from './core/FileDownloadService.js';
 import { FileWatcher } from './core/FileWatcher.js';
 import { logger, log } from './core/Logger.js';
+import { initializeMcpDirectories } from './core/PathUtils.js';
 import {
   IndexOptions,
   SearchOptions,
@@ -29,6 +30,13 @@ class LocalSearchServer {
   constructor() {
     const timer = log.time('server-constructor-total');
     log.info('Starting Local Search MCP server initialization');
+
+    // Initialize MCP directories first to fix permission issues
+    log.debug('Initializing MCP directory structure');
+    initializeMcpDirectories().catch(error => {
+      log.error('Failed to initialize MCP directories', error);
+      // Don't throw - try to continue with default behavior
+    });
 
     // Log environment info
     const stats = logger.getLogStats();

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { getMcpPaths } from './PathUtils.js';
 
 export enum LogLevel {
   DEBUG = 'DEBUG',
@@ -24,8 +25,8 @@ export class Logger {
   private fileEnabled = true;
 
   private constructor() {
-    const dataFolder = process.env.MCP_DATA_FOLDER || process.cwd();
-    this.logFile = path.join(dataFolder, 'local-search-mcp.log');
+    const mcpPaths = getMcpPaths();
+    this.logFile = mcpPaths.logs;
 
     // Initialize file stream
     try {
