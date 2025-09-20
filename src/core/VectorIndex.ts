@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import { DocumentChunk, VectorIndexStatistics, StorageError } from '../types/index.js';
+import { log } from './Logger.js';
 
 // Database row interfaces
 interface DocumentRow {
@@ -36,9 +37,17 @@ export class VectorIndex {
   private dbPath: string;
 
   constructor(dbPath?: string) {
+    log.debug('Initializing VectorIndex');
+
     this.dbPath = dbPath || path.join(process.cwd(), 'local-search-index.db');
+    log.debug('VectorIndex database location', { dbPath: this.dbPath });
+
     this.db = new Database(this.dbPath);
+
+    log.debug('VectorIndex database connection established');
     this.initializeTables();
+
+    log.info('VectorIndex initialized successfully', { dbPath: this.dbPath });
   }
 
   /**
@@ -112,8 +121,15 @@ export class VectorIndex {
    */
   async storeChunks(chunks: DocumentChunk[]): Promise<number> {
     if (chunks.length === 0) {
+      log.debug('No chunks to store, returning 0');
       return 0;
     }
+
+    const timer = log.time('store-chunks');
+    log.info('Starting chunk storage operation', {
+      totalChunks: chunks.length,
+      uniqueFiles: new Set(chunks.map(c => c.filePath)).size
+    });
 
     try {
       const transaction = this.db.transaction((chunkList: DocumentChunk[]) => {
@@ -173,8 +189,16 @@ export class VectorIndex {
       // Update statistics
       await this.updateMetadata();
 
+      timer();
+      log.info('Chunk storage operation completed successfully', {
+        totalStored: chunks.length
+      });
+
       return chunks.length;
     } catch (error: any) {
+      log.error('Chunk storage operation failed', error, {
+        chunkCount: chunks.length
+      });
       throw new StorageError(
         `Failed to store chunks: ${error.message}`,
         error
@@ -190,10 +214,19 @@ export class VectorIndex {
    * @returns Sorted array of matching chunks with scores
    */
   async searchSimilar(queryEmbedding: number[], limit: number = 10, minScore: number = 0.0): Promise<DocumentChunk[]> {
+    const timer = log.time('vector-search');
+    log.debug('Starting vector similarity search', {
+      queryEmbeddingSize: queryEmbedding.length,
+      limit,
+      minScore
+    });
+
     try {
       // Get all chunks from database (in production, you'd use more sophisticated indexing)
       const stmt = this.db.prepare('SELECT * FROM chunks ORDER BY file_path, chunk_index');
       const rows = stmt.all() as ChunkRow[];
+
+      log.debug('Retrieved chunks from database', { totalChunks: rows.length });
 
       const results: Array<{ chunk: DocumentChunk; similarity: number }> = [];
 
@@ -230,9 +263,19 @@ export class VectorIndex {
       results.sort((a, b) => b.similarity - a.similarity);
 
       // Return top results
-      return results.slice(0, limit).map(r => r.chunk);
+      const finalResults = results.slice(0, limit).map(r => r.chunk);
+
+      timer();
+      log.info('Vector search completed', {
+        totalCandidates: rows.length,
+        matchingResults: finalResults.length,
+        topScore: finalResults[0]?.score || 0
+      });
+
+      return finalResults;
 
     } catch (error: any) {
+      log.error('Vector search failed', error);
       throw new StorageError(
         `Search failed: ${error.message}`,
         error

@@ -2,6 +2,7 @@ import { FileProcessor } from './FileProcessor.js';
 import { TextChunker, ChunkingConfig } from './TextChunker.js';
 import { EmbeddingService, EmbeddingConfig } from './EmbeddingService.js';
 import { VectorIndex } from './VectorIndex.js';
+import { log } from './Logger.js';
 import {
   DocumentChunk,
   IndexingResult,
@@ -32,6 +33,8 @@ export class SearchService {
   private config: Required<SearchServiceConfig>;
 
   constructor(config: SearchServiceConfig = {}) {
+    log.debug('Initializing SearchService', { config });
+
     this.config = {
       textChunkerConfig: {},
       embeddingConfig: {},
@@ -39,10 +42,15 @@ export class SearchService {
       ...config
     };
 
+    log.debug('Creating service dependencies');
     this.fileProcessor = new FileProcessor();
     this.textChunker = new TextChunker(this.config.textChunkerConfig);
     this.embeddingService = new EmbeddingService(this.config.embeddingConfig);
     this.vectorIndex = new VectorIndex(this.config.defaultIndexPath);
+
+    log.info('SearchService initialized successfully', {
+      indexPath: this.config.defaultIndexPath
+    });
   }
 
   /**
@@ -76,7 +84,11 @@ export class SearchService {
       );
 
       if (supportedFiles.length === 0) {
-        console.log('No supported files found to process');
+        log.warn('No supported files found to process', {
+          totalFiles: files.length,
+          folderPath,
+          options: Object.keys(options)
+        });
         return {
           totalFiles: files.length,
           processedFiles: 0,
@@ -87,13 +99,23 @@ export class SearchService {
         };
       }
 
-      console.log(`Starting parallel processing of ${supportedFiles.length} files...`);
+      log.info('Starting parallel file processing', {
+        totalFiles: files.length,
+        supportedFiles: supportedFiles.length,
+        folderPath,
+        concurrencyConfig
+      });
 
       // Configure concurrency limiter - default to CPU count
       const maxConcurrency = concurrencyConfig.maxFileProcessingConcurrency || os.cpus().length;
       const fileLimit = pLimit(maxConcurrency);
 
-      console.log(`Using concurrency limit of ${maxConcurrency} for file processing`);
+      log.debug('File processing configuration', {
+        maxConcurrency,
+        cpus: os.cpus().length,
+        chunkSize: options.chunkSize,
+        overlap: options.overlap
+      });
 
       // Create async tasks for each file
       const fileTasks = supportedFiles.map((file: string, index: number) => {
@@ -117,7 +139,11 @@ export class SearchService {
       // Count successful processes
       processedFiles = results.filter((result) => result.success).length;
 
-      console.log(`Parallel processing complete: ${processedFiles}/${supportedFiles.length} files processed`);
+      log.info('Parallel file processing complete', {
+        processed: processedFiles,
+        total: supportedFiles.length,
+        successRate: `${((processedFiles / supportedFiles.length) * 100).toFixed(1)}%`
+      });
 
       // Calculate totals
       const stats = await this.vectorIndex.getStatistics();
@@ -135,13 +161,22 @@ export class SearchService {
         errors
       };
 
-      console.log(`Indexing completed in ${processingTime}ms - ${totalChunks} chunks, ${totalTokens} tokens`);
+      log.info('Indexing operation completed', {
+        processingTime: `${processingTime}ms`,
+        totalChunks,
+        totalTokens,
+        successRate: `${((processedFiles / supportedFiles.length) * 100).toFixed(1)}%`
+      });
+
       return result;
 
     } catch (error) {
       const errorMessage = `Indexing failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
       errors.push(errorMessage);
-      console.error('Indexing error:', error);
+      log.error('Indexing operation failed after file discovery', error as any, {
+        totalFiles: 0,
+        folderPath
+      });
 
       return {
         totalFiles: 0,

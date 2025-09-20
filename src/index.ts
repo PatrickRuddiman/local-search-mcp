@@ -12,6 +12,7 @@ import { SearchService } from './core/SearchService.js';
 import { RepoService } from './core/RepoService.js';
 import { FileDownloadService } from './core/FileDownloadService.js';
 import { FileWatcher } from './core/FileWatcher.js';
+import { logger, log } from './core/Logger.js';
 import {
   IndexOptions,
   SearchOptions,
@@ -26,41 +27,127 @@ class LocalSearchServer {
   private fileWatcher: FileWatcher;
 
   constructor() {
+    const timer = log.time('server-constructor-total');
+    log.info('Starting Local Search MCP server initialization');
+
+    // Log environment info
+    const stats = logger.getLogStats();
+    log.info('Environment info', {
+      nodeVersion: process.version,
+      platform: process.platform,
+      arch: process.arch,
+      memory: `${(process.memoryUsage().heapTotal / 1024 / 1024).toFixed(1)}MB`,
+      cwd: process.cwd(),
+      logFile: logger.getLogFile(),
+      logStats: stats
+    });
+
+    log.debug('Initializing service orchestration');
+
     // Initialize the search service
-    this.searchService = new SearchService();
+    const searchTimer = log.time('search-service-init');
+    log.debug('Creating SearchService instance');
+    try {
+      this.searchService = new SearchService();
+      log.debug('SearchService initialized successfully');
+    } catch (error: any) {
+      log.error('Failed to initialize SearchService', error);
+      throw error;
+    }
+    searchTimer();
 
     // Initialize file watcher for automatic indexing
-    this.fileWatcher = new FileWatcher(this.searchService);
+    const watcherTimer = log.time('file-watcher-init');
+    log.debug('Creating FileWatcher instance');
+    try {
+      this.fileWatcher = new FileWatcher(this.searchService);
+      log.debug('FileWatcher initialized successfully');
+    } catch (error: any) {
+      log.error('Failed to initialize FileWatcher', error);
+      throw error;
+    }
+    watcherTimer();
 
     // Initialize repository and file services with watcher
-    this.repoService = new RepoService(this.searchService, this.fileWatcher);
-    this.fileDownloadService = new FileDownloadService(this.searchService, this.fileWatcher);
+    const servicesTimer = log.time('services-init');
+    log.debug('Initializing RepoService and FileDownloadService');
+    try {
+      this.repoService = new RepoService(this.searchService, this.fileWatcher);
+      this.fileDownloadService = new FileDownloadService(this.searchService, this.fileWatcher);
+      log.debug('Repository and file services initialized successfully');
+    } catch (error: any) {
+      log.error('Failed to initialize service orchestration', error);
+      throw error;
+    }
+    servicesTimer();
 
-    this.server = new Server(
-      {
-        name: 'local-search-mcp',
-        version: '0.1.0',
-      },
-      {
-        capabilities: {
-          tools: {},
+    // Create MCP server
+    const serverTimer = log.time('mcp-server-init');
+    log.debug('Creating MCP Server instance');
+    try {
+      this.server = new Server(
+        {
+          name: 'local-search-mcp',
+          version: '0.1.0',
         },
-      }
-    );
+        {
+          capabilities: {
+            tools: {},
+          },
+        }
+      );
+      log.debug('MCP Server instance created successfully');
+    } catch (error: any) {
+      log.error('Failed to create MCP Server', error);
+      throw error;
+    }
+    serverTimer();
 
-    this.setupToolHandlers();
+    // Setup tool handlers
+    const toolsTimer = log.time('tool-handlers-init');
+    log.debug('Setting up MCP tool handlers');
+    try {
+      this.setupToolHandlers();
+      log.debug('MCP tool handlers set up successfully');
+    } catch (error: any) {
+      log.error('Failed to setup tool handlers', error);
+      throw error;
+    }
+    toolsTimer();
 
-    // Start file watcher
-    this.initializeFileWatcher();
+    // Initialize file watcher (async)
+    log.debug('Starting file watcher initialization (deferred)');
+    this.initializeFileWatcher().catch(error => {
+      log.error('File watcher initialization failed', error);
+    });
 
-    // Error handling
-    this.server.onerror = (error) => console.error('[MCP Error]', error);
+    // Setup error handling
+    log.debug('Setting up error handlers');
+    this.server.onerror = (error) => {
+      log.error('MCP Server error', error);
+      console.error('[MCP Error]', error);
+    };
+
+    // Setup graceful shutdown
     process.on('SIGINT', async () => {
-      await this.stopFileWatcher();
-      await this.server.close();
-      this.searchService.dispose();
+      log.info('Received SIGINT, starting graceful shutdown');
+      const shutdownTimer = log.time('graceful-shutdown');
+
+      try {
+        await this.stopFileWatcher();
+        await this.server.close();
+        this.searchService.dispose();
+        log.info('Graceful shutdown completed');
+      } catch (error: any) {
+        log.error('Error during graceful shutdown', error);
+      }
+
+      shutdownTimer();
       process.exit(0);
     });
+
+    timer();
+    log.info('Local Search MCP Server initialization completed');
   }
 
   private setupToolHandlers() {
@@ -147,27 +234,44 @@ class LocalSearchServer {
       ],
     }));
 
-    // Handle tool calls
+  // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
+      const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      log.debug(`[${requestId}] Tool call received: ${name}`, { args: Object.keys(args || {}) });
 
       try {
+        const timer = log.time(`tool-${name}-${requestId}`);
+        let result;
+
         switch (name) {
           case 'search_documents':
-            return await this.handleSearchDocuments(args);
+            result = await this.handleSearchDocuments(args, requestId);
+            break;
           case 'get_file_details':
-            return await this.handleGetFileDetails(args);
+            result = await this.handleGetFileDetails(args, requestId);
+            break;
           case 'fetch_repo':
-            return await this.handleFetchRepo(args);
+            result = await this.handleFetchRepo(args, requestId);
+            break;
           case 'fetch_file':
-            return await this.handleFetchFile(args);
+            result = await this.handleFetchFile(args, requestId);
+            break;
           default:
+            log.warn(`[${requestId}] Unknown tool requested: ${name}`);
             throw new McpError(
               ErrorCode.MethodNotFound,
               `Unknown tool: ${name}`
             );
         }
+
+        timer();
+        log.debug(`[${requestId}] Tool call completed successfully: ${name}`);
+        return result;
+
       } catch (error: any) {
+        log.error(`[${requestId}] Tool call failed: ${name}`, error, { toolName: name, args });
         throw new McpError(
           ErrorCode.InternalError,
           `Tool error: ${error.message}`
@@ -178,12 +282,18 @@ class LocalSearchServer {
 
 
 
-  private async handleSearchDocuments(args: any) {
+  private async handleSearchDocuments(args: any, requestId: string) {
     try {
+      log.debug(`[${requestId}] Executing search_documents for query: "${args.query}"`);
       const result = await this.searchService.searchDocuments(
         args.query,
         args.options || {}
       );
+      log.debug(`[${requestId}] Search completed`, {
+        query: args.query,
+        resultsFound: result.totalResults,
+        searchTime: result.searchTime
+      });
 
       const summary = `Found ${result.totalResults} results for "${result.query}" in ${result.searchTime}ms`;
 
@@ -225,13 +335,15 @@ class LocalSearchServer {
     }
   }
 
-  private async handleGetFileDetails(args: any) {
+  private async handleGetFileDetails(args: any, requestId: string) {
     try {
+      log.debug(`[${requestId}] Retrieving file details for: ${args.filePath}`);
       const chunks = await this.searchService.getFileDetails(
         args.filePath,
         args.chunkIndex,
         args.contextLines || 3
       );
+      log.debug(`[${requestId}] Retrieved ${chunks.length} chunks for ${args.filePath}`);
 
       if (chunks.length === 0) {
         return {
@@ -272,8 +384,12 @@ class LocalSearchServer {
     }
   }
 
-  private async handleFetchRepo(args: any) {
+  private async handleFetchRepo(args: any, requestId: string) {
     try {
+      log.debug(`[${requestId}] Fetching repository: ${args.repoUrl}`, {
+        branch: args.branch,
+        options: args.options
+      });
       const result = await this.repoService.fetchRepository(
         args.repoUrl,
         args.branch,
@@ -283,6 +399,11 @@ class LocalSearchServer {
       if (!result.success) {
         throw new Error(result.error);
       }
+
+      log.info(`[${requestId}] Repository fetched successfully: ${result.repoName}`, {
+        filesProcessed: result.filesProcessed,
+        outputDir: result.outputDir
+      });
 
       const message = `Successfully processed repository: ${result.repoName}\n` +
                       `Files processed: ${result.filesProcessed}\n` +
@@ -308,8 +429,12 @@ class LocalSearchServer {
     }
   }
 
-  private async handleFetchFile(args: any) {
+  private async handleFetchFile(args: any, requestId: string) {
     try {
+      log.debug(`[${requestId}] Downloading file: ${args.url}`, {
+        filename: args.filename,
+        docFolder: args.docFolder
+      });
       const result = await this.fileDownloadService.downloadFile(
         args.url,
         args.filename,
@@ -321,8 +446,13 @@ class LocalSearchServer {
         throw new Error(result.error);
       }
 
+      const size = result.size;
+      log.info(`[${requestId}] File downloaded successfully: ${result.filePath}`, {
+        sizeKb: (size / 1024).toFixed(1)
+      });
+
       const message = `Successfully downloaded file: ${result.filePath}\n` +
-                      `Size: ${(result.size / 1024).toFixed(1)}KB`;
+                      `Size: ${(size / 1024).toFixed(1)}KB`;
 
       return {
         content: [
@@ -350,11 +480,15 @@ class LocalSearchServer {
    * Initialize file watcher
    */
   private async initializeFileWatcher(): Promise<void> {
+    log.debug('Initializing file watcher (deferred)');
     try {
+      const timer = log.time('file-watcher-start');
       await this.fileWatcher.startWatching();
-      console.log('File watcher started for automatic indexing');
+      log.info('File watcher started for automatic indexing');
+      timer();
     } catch (error: any) {
-      console.error('Failed to start file watcher:', error.message);
+      log.error('Failed to start file watcher', error);
+      log.warn('File watcher disabled - manual indexing will still work');
       // Don't throw - file watcher is not critical for basic functionality
     }
   }
@@ -363,18 +497,33 @@ class LocalSearchServer {
    * Stop file watcher
    */
   private async stopFileWatcher(): Promise<void> {
+    log.debug('Stopping file watcher');
     try {
       await this.fileWatcher.stopWatching();
-      console.log('File watcher stopped');
+      log.info('File watcher stopped');
     } catch (error: any) {
-      console.error('Error stopping file watcher:', error.message);
+      log.error('Error stopping file watcher', error);
     }
   }
 
   async run() {
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    console.error('Local Search MCP server running on stdio');
+    log.debug('Connecting MCP server to transport');
+    try {
+      const timer = log.time('server-transport-connect');
+      const transport = new StdioServerTransport();
+      await this.server.connect(transport);
+      timer();
+
+      log.info('Local Search MCP server running on stdio', {
+        availableTools: ['search_documents', 'get_file_details', 'fetch_repo', 'fetch_file']
+      });
+
+      console.error('Local Search MCP server running on stdio');
+    } catch (error: any) {
+      log.error('Failed to start MCP server', error);
+      console.error('Failed to start MCP server:', error.message);
+      throw error;
+    }
   }
 }
 

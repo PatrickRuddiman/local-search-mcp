@@ -1,16 +1,21 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { FileProcessingError } from '../types/index.js';
+import { log } from './Logger.js';
 
 export class FileProcessor {
   private supportedExtensions: Set<string>;
 
   constructor() {
+    log.debug('Initializing FileProcessor');
     this.supportedExtensions = new Set([
       '.txt', '.md', '.json', '.yaml', '.yml', '.rst',
       '.js', '.ts', '.py', '.java', '.c', '.cpp', '.h',
       '.css', '.scss', '.html', '.xml', '.csv'
     ]);
+    log.debug('FileProcessor initialized successfully', {
+      supportedExtensions: Array.from(this.supportedExtensions)
+    });
   }
 
   /**
@@ -20,7 +25,15 @@ export class FileProcessor {
    */
   isFileSupported(filePath: string): boolean {
     const ext = path.extname(filePath).toLowerCase();
-    return this.supportedExtensions.has(ext);
+    const supported = this.supportedExtensions.has(ext);
+
+    log.debug('File support check', {
+      filePath,
+      extension: ext,
+      supported
+    });
+
+    return supported;
   }
 
   /**
@@ -29,24 +42,66 @@ export class FileProcessor {
    * @returns Extracted text content
    */
   async extractText(filePath: string): Promise<string> {
+    const timer = log.time(`file-extract-${path.basename(filePath)}`);
+
     try {
+      log.debug('Starting file text extraction', {
+        filePath,
+        basename: path.basename(filePath)
+      });
+
       // Check if file exists and get stats
       const stats = await fs.stat(filePath);
 
       if (stats.isDirectory()) {
+        log.warn('Attempted to extract text from directory', { filePath });
         throw new FileProcessingError(`Path is a directory: ${filePath}`);
       }
 
       if (stats.size > 10 * 1024 * 1024) { // 10MB limit
+        log.warn('File size exceeds limit', {
+          filePath,
+          size: stats.size,
+          sizeMB: (stats.size / 1024 / 1024).toFixed(1),
+          maxSizeMB: 10
+        });
         throw new FileProcessingError(`File too large: ${filePath} (${stats.size} bytes)`);
       }
+
+      log.debug('File validation passed', {
+        filePath,
+        sizeBytes: stats.size,
+        modified: stats.mtime.toISOString()
+      });
 
       const content = await fs.readFile(filePath, 'utf-8');
       const ext = path.extname(filePath).toLowerCase();
 
+      log.debug('Raw content read successfully', {
+        filePath,
+        contentLength: content.length,
+        extension: ext
+      });
+
       // Process content based on file type
-      return this.postProcessContent(content, ext);
+      const processed = this.postProcessContent(content, ext);
+
+      timer();
+      log.info('File text extraction completed', {
+        filePath,
+        originalLength: content.length,
+        processedLength: processed.length,
+        extension: ext,
+        changed: processed.length !== content.length
+      });
+
+      return processed;
     } catch (error: any) {
+      log.error('File text extraction failed', error, {
+        filePath,
+        basename: path.basename(filePath)
+      });
+
       if (error instanceof FileProcessingError) {
         throw error;
       }
@@ -134,12 +189,31 @@ export class FileProcessor {
     lastModified: Date;
     isText: boolean;
   }> {
-    const stats = await fs.stat(filePath);
-    return {
-      size: stats.size,
-      lastModified: stats.mtime,
-      isText: this.isLikelyText(stats.size)
-    };
+    try {
+      const timer = log.time(`file-metadata-${path.basename(filePath)}`);
+      log.debug('Getting file metadata', { filePath });
+
+      const stats = await fs.stat(filePath);
+      const metadata = {
+        size: stats.size,
+        lastModified: stats.mtime,
+        isText: this.isLikelyText(stats.size)
+      };
+
+      timer();
+      log.debug('File metadata retrieved', {
+        filePath,
+        size: stats.size,
+        sizeKB: (stats.size / 1024).toFixed(1),
+        lastModified: stats.mtime.toISOString(),
+        isText: metadata.isText
+      });
+
+      return metadata;
+    } catch (error: any) {
+      log.error('Failed to get file metadata', error, { filePath });
+      throw error;
+    }
   }
 
   /**

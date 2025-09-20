@@ -1,6 +1,7 @@
 import * as use from '@tensorflow-models/universal-sentence-encoder';
 import * as tf from '@tensorflow/tfjs-node';
 import { DocumentChunk, EmbeddingError } from '../types/index.js';
+import { log } from './Logger.js';
 
 export interface EmbeddingConfig {
   modelName?: string;  // For future use if switching models
@@ -13,24 +14,45 @@ export class EmbeddingService {
   private initialized = false;
 
   constructor(config: EmbeddingConfig = {}) {
+    log.debug('Initializing EmbeddingService', { config });
+
     this.config = {
       modelName: 'universal-sentence-encoder', // Universal sentence encoder
       batchSize: 32, // USE can handle larger batches
       ...config
     };
+
+    log.debug('EmbeddingService initialized', {
+      modelName: this.config.modelName,
+      batchSize: this.config.batchSize
+    });
   }
 
   /**
    * Initialize the embedding model (Universal Sentence Encoder)
    */
   async initialize(): Promise<void> {
+    const timer = log.time('embedding-model-init');
+    log.info('Starting Universal Sentence Encoder model loading', {
+      modelName: this.config.modelName,
+      tfBackend: tf.getBackend()
+    });
+
     try {
-      console.log('Loading Universal Sentence Encoder model...');
       this.model = await use.load();
       this.initialized = true;
-      console.log('Universal Sentence Encoder loaded successfully');
-    } catch (error) {
+
+      const modelInfo = this.getModelInfo();
+      log.info('Universal Sentence Encoder loaded successfully', {
+        dimensions: modelInfo.dimensions,
+        gpuEnabled: modelInfo.gpuEnabled
+      });
+
+      timer();
+    } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
+      log.error('Failed to load Universal Sentence Encoder model', error);
+
       throw new EmbeddingError(
         `Failed to initialize Universal Sentence Encoder: ${message}`,
         error instanceof Error ? error : undefined
@@ -44,6 +66,12 @@ export class EmbeddingService {
    * @returns Chunks with embeddings added
    */
   async generateEmbeddings(chunks: DocumentChunk[]): Promise<DocumentChunk[]> {
+    const timer = log.time('generate-embeddings');
+    log.info('Starting embedding generation', {
+      totalChunks: chunks.length,
+      batchSize: this.config.batchSize
+    });
+
     if (!this.initialized || !this.model) {
       await this.initialize();
     }
@@ -59,14 +87,30 @@ export class EmbeddingService {
 
       for (let i = 0; i < chunks.length; i += batchSize) {
         const batch = chunks.slice(i, i + batchSize);
-        console.log(`Processing batch ${Math.floor(i / batchSize) + 1}: ${batch.length} chunks`);
+        const batchNum = Math.floor(i / batchSize) + 1;
+        const totalBatches = Math.ceil(chunks.length / batchSize);
+
+        log.debug(`Processing embedding batch ${batchNum}/${totalBatches}`, {
+          batchSize: batch.length,
+          remainingChunks: chunks.length - i
+        });
 
         const batchEmbeddings = await this.processBatch(batch);
         results.push(...batchEmbeddings);
+
+        log.debug(`Completed embedding batch ${batchNum}/${totalBatches}`, {
+          embedCount: batchEmbeddings.length
+        });
       }
+
+      log.info('Embedding generation completed', {
+        totalEmbeddings: results.length
+      });
+      timer();
 
       return results;
     } catch (error: any) {
+      log.error('Embedding generation failed', error, { chunkCount: chunks.length });
       throw new EmbeddingError(
         `Embedding generation failed: ${error.message}`,
         error
@@ -98,7 +142,8 @@ export class EmbeddingService {
       }));
 
     } catch (error: any) {
-      console.warn('Batch processing failed, processing individually:', error.message);
+      log.warn('Batch processing failed, processing individually', { batchSize: chunks.length });
+      log.error('Batch processing error details', error);
 
       // Fallback: process individually
       const results: DocumentChunk[] = [];
@@ -110,7 +155,7 @@ export class EmbeddingService {
             embedding
           });
         } catch (individualError: any) {
-          console.warn(`Failed to embed chunk ${chunks[i].id}:`, individualError.message);
+          log.warn(`Failed to embed chunk ${chunks[i].id}`, individualError);
           // Add chunk with empty embedding - will be handled by search service
           results.push({
             ...chunks[i],
@@ -234,6 +279,8 @@ export class EmbeddingService {
    * Clean up TensorFlow resources
    */
   dispose(): void {
+    log.debug('Disposing EmbeddingService resources');
+
     // Clean up TensorFlow resources
     if (this.model) {
       // Universal Sentence Encoder cleanup
@@ -244,6 +291,6 @@ export class EmbeddingService {
     tf.disposeVariables();
 
     this.initialized = false;
-    console.log('EmbeddingService disposed');
+    log.info('EmbeddingService disposed');
   }
 }

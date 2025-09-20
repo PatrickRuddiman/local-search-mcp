@@ -4,6 +4,7 @@ import { runCli } from 'repomix';
 import { SearchService } from './SearchService.js';
 import { FileWatcher } from './FileWatcher.js';
 import { IndexOptions } from '../types/index.js';
+import { log } from './Logger.js';
 
 interface RepoDownloadOptions {
   includePatterns?: string[];
@@ -19,8 +20,10 @@ export class RepoService {
   private fileWatcher?: FileWatcher;
 
   constructor(searchService: SearchService, fileWatcher?: FileWatcher) {
+    log.debug('Initializing RepoService');
     this.searchService = searchService;
     this.fileWatcher = fileWatcher;
+    log.debug('RepoService initialized successfully');
   }
 
   /**
@@ -35,33 +38,67 @@ export class RepoService {
     branch?: string,
     options: RepoDownloadOptions = {}
   ): Promise<any> {
+    const timer = log.time('repo-fetch-total');
+    const repoName = this.extractRepoName(repoUrl);
+
+    log.info('Starting repository fetch operation', {
+      repoUrl,
+      branch: branch || 'default',
+      repoName,
+      options
+    });
+
     try {
-      // Extract repo name from URL
-      const repoName = this.extractRepoName(repoUrl);
       const tempDir = path.join('./temp', `${repoName}_${Date.now()}`);
       const outputDir = path.join('./docs', 'repositories', repoName);
 
+      log.debug('Repository paths configured', {
+        tempDir,
+        outputDir,
+        repoName
+      });
+
       // Create directories
+      const setupTimer = log.time('repo-directories-setup');
       await fs.mkdir(tempDir, { recursive: true });
       await fs.mkdir(outputDir, { recursive: true });
+      setupTimer();
+
+      log.debug('Repository directories created successfully');
 
       // Clone and convert repository using repomix
+      const downloadTimer = log.time('repo-download-processing');
       await this.downloadRepositoryWithRepomix(repoUrl, branch, tempDir, outputDir, options);
+      downloadTimer();
 
       // Index the downloaded content
+      log.debug('Starting indexing of downloaded repository content');
+      const indexTimer = log.time('repo-indexing');
       const indexResult = await this.searchService.indexFiles(outputDir, {
         chunkSize: 1000,
         overlap: 200,
         maxFiles: options.maxFiles || 1000,
         fileTypes: ['.md', '.txt', '.json', '.rst']
       });
+      indexTimer();
 
       // Clean up temporary directory
       try {
+        log.debug('Cleaning up temporary repository directory');
         await this.rmDir(tempDir);
-      } catch (cleanupError) {
-        console.warn('Failed to cleanup temporary directory:', cleanupError);
+        log.debug('Temporary directory cleanup completed');
+      } catch (cleanupError: any) {
+        log.warn('Failed to cleanup temporary directory', { tempDir, error: cleanupError.message });
       }
+
+      timer();
+      log.info('Repository fetch operation completed successfully', {
+        repoName,
+        filesProcessed: indexResult.processedFiles,
+        outputDir,
+        totalChunks: indexResult.totalChunks,
+        totalTokens: indexResult.totalTokens
+      });
 
       return {
         success: true,
@@ -72,6 +109,12 @@ export class RepoService {
       };
 
     } catch (error: any) {
+      log.error('Repository fetch operation failed', error, {
+        repoUrl,
+        branch,
+        repoName
+      });
+
       return {
         success: false,
         error: error.message,
@@ -112,12 +155,16 @@ export class RepoService {
       const include = includePatterns.join(',');
       const exclude = excludePatterns.join(',');
 
-      console.log(`Processing repository: ${repoWithBranch}`);
-      console.log(`Output directory: ${outputDir}`);
-      console.log(`Include patterns: ${include}`);
-      console.log(`Exclude patterns: ${exclude}`);
+      log.info('Starting repomix repository processing', {
+        repoUrl: repoWithBranch,
+        outputDir,
+        include,
+        exclude,
+        options
+      });
 
       // Use repomix library to process repository
+      const repomixTimer = log.time('repomix-processing');
       await runCli([repoWithBranch], outputDir, {
         output: outputDir,
         include,
@@ -131,12 +178,19 @@ export class RepoService {
         quiet: false, // Show progress for debugging
         verbose: false // Not too verbose
       });
+      repomixTimer();
 
-      // If we reach here, the operation was successful
-      console.log('Repository processed successfully');
+      log.info('Repository processed successfully via repomix', {
+        repoUrl: repoWithBranch,
+        outputDir
+      });
 
     } catch (error: any) {
-      console.error('Repomix library error:', error);
+      log.error('Repomix repository processing failed', error, {
+        repoUrl,
+        branch,
+        outputDir
+      });
       throw new Error(`Failed to download repository: ${error.message}`);
     }
   }

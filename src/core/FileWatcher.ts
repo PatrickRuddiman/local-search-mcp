@@ -4,6 +4,7 @@ import os from 'os';
 import { promises as fs } from 'fs';
 import { SearchService } from './SearchService.js';
 import { FileProcessor } from './FileProcessor.js';
+import { log } from './Logger.js';
 
 export class FileWatcher {
   private watcher?: any; // chokidar.FSWatcher
@@ -13,8 +14,10 @@ export class FileWatcher {
   private processingLock = false;
 
   constructor(searchService: SearchService) {
+    log.debug('Initializing FileWatcher');
     this.searchService = searchService;
     this.docsFolder = this.getDocsFolderPath();
+    log.debug('FileWatcher initialized', { docsFolder: this.docsFolder });
   }
 
   /**
@@ -49,11 +52,15 @@ export class FileWatcher {
    * Ensure docs folder exists
    */
   private async ensureDocsFolder(): Promise<void> {
+    const timer = log.time('ensure-docs-folder');
     try {
+      log.debug('Ensuring docs folder exists', { docsFolder: this.docsFolder });
       await fs.mkdir(this.docsFolder, { recursive: true });
-      console.log(`Ensured docs folder exists: ${this.docsFolder}`);
-    } catch (error) {
-      throw new Error(`Failed to create docs folder: ${error}`);
+      log.info('Docs folder ensured', { docsFolder: this.docsFolder });
+      timer();
+    } catch (error: any) {
+      log.error('Failed to create docs folder', error, { docsFolder: this.docsFolder });
+      throw new Error(`Failed to create docs folder: ${error.message}`);
     }
   }
 
@@ -62,9 +69,15 @@ export class FileWatcher {
    */
   async startWatching(): Promise<void> {
     if (this.isWatching) {
-      console.warn('File watcher is already running');
+      log.warn('File watcher is already running, ignoring start request');
       return;
     }
+
+    const timer = log.time('file-watcher-start');
+    log.info('Starting file watcher initialization', {
+      docsFolder: this.docsFolder,
+      ignoreInitial: false // Process existing files on startup
+    });
 
     try {
       await this.ensureDocsFolder();
@@ -91,6 +104,10 @@ export class FileWatcher {
       };
 
       // Watch for file changes in docs folder and subdirectories
+      log.debug('Initializing Chokidar watcher', {
+        awaitWriteFinish: { stabilityThreshold: 1000, pollInterval: 100 }
+      });
+
       this.watcher = chokidar.watch(this.docsFolder, {
         persistent: true,
         ignoreInitial: false, // Also process existing files on startup
@@ -102,31 +119,59 @@ export class FileWatcher {
         followSymlinks: false
       });
 
-      // File added or changed
+      // File added event
       this.watcher.on('add', async (filePath: string) => {
+        log.debug('File watcher detected new file', { filePath });
         if (this.shouldIndexFile(filePath)) {
+          log.info('Indexing newly added file', {
+            filePath,
+            relativePath: path.relative(this.docsFolder, filePath)
+          });
           await this.processFile(filePath, 'add');
+        } else {
+          log.debug('Skipping newly added file (not eligible)', { filePath });
         }
       });
 
+      // File changed event
       this.watcher.on('change', async (filePath: string) => {
+        log.debug('File watcher detected file change', { filePath });
         if (this.shouldIndexFile(filePath)) {
+          log.info('Re-indexing changed file', {
+            filePath,
+            relativePath: path.relative(this.docsFolder, filePath)
+          });
           await this.processFile(filePath, 'change');
         }
       });
 
-      // File removed
+      // File removed event
       this.watcher.on('unlink', async (filePath: string) => {
+        log.debug('File watcher detected file deletion', { filePath });
         if (this.shouldIndexFile(filePath)) {
+          log.info('Removing deleted file from index', {
+            filePath,
+            relativePath: path.relative(this.docsFolder, filePath)
+          });
           await this.deleteFileFromIndex(filePath);
         }
       });
 
-      this.isWatching = true;
-      console.log(`Started watching docs folder: ${this.docsFolder}`);
+      // Handle watcher errors
+      this.watcher.on('error', (error: any) => {
+        log.error('File watcher error', error);
+      });
 
-    } catch (error) {
-      throw new Error(`Failed to start file watcher: ${error}`);
+      this.isWatching = true;
+      log.info('File watcher started successfully', {
+        docsFolder: this.docsFolder,
+        ignoreInitial: false
+      });
+      timer();
+
+    } catch (error: any) {
+      log.error('Failed to start file watcher', error, { docsFolder: this.docsFolder });
+      throw new Error(`Failed to start file watcher: ${error.message}`);
     }
   }
 
@@ -134,12 +179,17 @@ export class FileWatcher {
    * Stop watching the docs folder
    */
   async stopWatching(): Promise<void> {
+    log.debug('Stopping file watcher');
+
     if (this.watcher) {
+      const timer = log.time('file-watcher-close');
       await this.watcher.close();
+      timer();
       this.watcher = undefined;
     }
+
     this.isWatching = false;
-    console.log('Stopped watching docs folder');
+    log.info('File watcher stopped');
   }
 
   /**
@@ -173,7 +223,15 @@ export class FileWatcher {
    * Process a single file (add/update) with concurrency control
    */
   private async processFile(filePath: string, operation: 'add' | 'change'): Promise<void> {
-    console.log(`${operation === 'add' ? 'Processing' : 'Re-processing'} file: ${filePath}`);
+    const timer = log.time(`file-${operation}`);
+    const relativePath = path.relative(this.docsFolder, filePath);
+
+    log.info(`Processing file via watcher: ${operation}`, {
+      filePath,
+      relativePath,
+      operation,
+      docsFolder: this.docsFolder
+    });
 
     try {
       // Use TextChunker to chunk the file content
@@ -185,22 +243,41 @@ export class FileWatcher {
         preserveMarkdownHeaders: true
       };
 
+      const concurrencyConfig = {
+        maxFileProcessingConcurrency: 1, // Single file from watcher
+        maxDirectoryConcurrency: os.cpus().length, // But allow directory scanning concurrency
+        maxEmbeddingConcurrency: 1, // Single file embedding
+        maxRepositoryConcurrency: 1, // Not applicable for file watching
+        maxFileWatcherConcurrency: os.cpus().length / 2 // Allow some concurrent file processing
+      };
+
+      log.debug('Starting file indexing via SearchService', {
+        chunkConfig,
+        concurrencyConfig,
+        filePath
+      });
+
       // Process single file by chunks
       await this.searchService.indexFiles(filePath, {
         chunkSize: chunkConfig.chunkSize,
         overlap: chunkConfig.overlap,
         maxFiles: 1, // Only process this single file
         fileTypes: ['.md', '.txt', '.json', '.js', '.ts', '.rst'] // Supported types
-      }, {
-        maxFileProcessingConcurrency: 1, // Single file from watcher
-        maxDirectoryConcurrency: os.cpus().length, // But allow directory scanning concurrency
-        maxEmbeddingConcurrency: 1, // Single file embedding
-        maxRepositoryConcurrency: 1, // Not applicable for file watching
-        maxFileWatcherConcurrency: os.cpus().length / 2 // Allow some concurrent file processing
-      });
+      }, concurrencyConfig);
 
-    } catch (error) {
-      console.error(`Failed to process file ${filePath}:`, error);
+      log.info(`File ${operation} completed successfully`, {
+        filePath,
+        relativePath,
+        operation
+      });
+      timer();
+
+    } catch (error: any) {
+      log.error(`Failed to ${operation} file via watcher`, error, {
+        filePath,
+        relativePath,
+        operation
+      });
     }
   }
 
@@ -208,11 +285,26 @@ export class FileWatcher {
    * Remove file from index
    */
   private async deleteFileFromIndex(filePath: string): Promise<void> {
+    const timer = log.time('file-delete-from-index');
+    const relativePath = path.relative(this.docsFolder, filePath);
+
+    log.info('Removing file from index', {
+      filePath,
+      relativePath
+    });
+
     try {
-      console.log(`Removing file from index: ${filePath}`);
       await this.searchService.deleteFile(filePath);
-    } catch (error) {
-      console.error(`Failed to delete file ${filePath} from index:`, error);
+      log.info('File successfully removed from index', {
+        filePath,
+        relativePath
+      });
+      timer();
+    } catch (error: any) {
+      log.error('Failed to remove file from index', error, {
+        filePath,
+        relativePath
+      });
     }
   }
 
@@ -220,10 +312,20 @@ export class FileWatcher {
    * Manually trigger indexing of a specific file
    */
   async indexFile(filePath: string): Promise<void> {
+    const relativePath = path.relative(this.docsFolder, filePath);
+
     if (this.shouldIndexFile(filePath)) {
+      log.info('Manually indexing file', {
+        filePath,
+        relativePath
+      });
       await this.processFile(filePath, 'add');
     } else {
-      console.warn(`File ${filePath} not eligible for indexing`);
+      log.warn('Manual indexing skipped - file not eligible', {
+        filePath,
+        relativePath,
+        docsFolder: this.docsFolder
+      });
     }
   }
 

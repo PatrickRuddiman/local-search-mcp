@@ -1,4 +1,6 @@
+import path from 'path';
 import { DocumentChunk } from '../types/index.js';
+import { log } from './Logger.js';
 
 export interface ChunkingConfig {
   chunkSize?: number;
@@ -12,6 +14,8 @@ export class TextChunker {
   private defaultConfig: Required<ChunkingConfig>;
 
   constructor(config: ChunkingConfig = {}) {
+    log.debug('Initializing TextChunker', { config });
+
     this.defaultConfig = {
       chunkSize: 1000,
       overlap: 200,
@@ -20,6 +24,8 @@ export class TextChunker {
       preserveMarkdownHeaders: true,
       ...config
     };
+
+    log.debug('TextChunker initialized successfully', this.defaultConfig);
   }
 
   /**
@@ -30,16 +36,54 @@ export class TextChunker {
    * @returns Array of document chunks
    */
   chunkText(text: string, filePath: string, config?: Partial<ChunkingConfig>): DocumentChunk[] {
+    const timer = log.time(`chunk-text-${path.basename(filePath)}`);
     const mergedConfig = { ...this.defaultConfig, ...config };
 
-    // Pre-process text based on configuration
-    const processedText = this.preprocessText(text, mergedConfig);
+    log.debug('Starting text chunking', {
+      filePath,
+      textLength: text.length,
+      config: mergedConfig
+    });
 
-    // Split text based on method
-    const segments = this.splitIntoSegments(processedText, mergedConfig);
+    try {
+      // Pre-process text based on configuration
+      log.debug('Pre-processing text for chunking');
+      const processedText = this.preprocessText(text, mergedConfig);
 
-    // Create chunks with overlap
-    return this.createChunksWithOverlap(segments, filePath, mergedConfig);
+      log.debug('Pre-processed text', {
+        filePath,
+        originalLength: text.length,
+        processedLength: processedText.length,
+        changed: processedText.length !== text.length
+      });
+
+      // Split text based on method
+      log.debug('Splitting text into segments', { method: mergedConfig.method });
+      const segments = this.splitIntoSegments(processedText, mergedConfig);
+
+      log.debug('Text segmented', {
+        filePath,
+        segmentCount: segments.length,
+        method: mergedConfig.method
+      });
+
+      // Create chunks with overlap
+      const chunks = this.createChunksWithOverlap(segments, filePath, mergedConfig);
+
+      timer();
+      log.info('Text chunking completed', {
+        filePath,
+        originalTextLength: text.length,
+        chunksCreated: chunks.length,
+        totalTokens: chunks.reduce((sum, c) => sum + c.metadata.tokenCount, 0),
+        chunkConfig: mergedConfig
+      });
+
+      return chunks;
+    } catch (error: any) {
+      log.error('Text chunking failed', error, { filePath, textLength: text.length });
+      throw error;
+    }
   }
 
   /**
