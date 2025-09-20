@@ -27,7 +27,7 @@ npm run build
 
 ## Basic Workflow
 
-### 1. Index a Folder
+### 1. Index a Folder (Local Files)
 ```typescript
 // Using the MCP tool
 await index_files({
@@ -36,6 +36,38 @@ await index_files({
     chunkSize: 1000,
     overlap: 200,
     fileTypes: [".md", ".txt"]
+  }
+});
+```
+
+### 1b. Fetch and Index a Repository
+```typescript
+// Fetch documentation from a GitHub repository
+await fetch_repo({
+  repoUrl: "https://github.com/microsoft/vscode-docs",
+  options: {
+    maxFiles: 1000,
+    includePatterns: ["*.md", "*.txt", "*.rst"]
+  }
+});
+```
+
+### 1c. Fetch and Index Individual Files
+```typescript
+// Fetch a specific documentation file from raw GitHub URL
+await fetch_file({
+  url: "https://raw.githubusercontent.com/microsoft/vscode-docs/main/docs/api/vscode-api.md",
+  filename: "vscode-api.md"
+});
+
+// Fetch to custom folder with size limit
+await fetch_file({
+  url: "https://example.com/api-docs.json",
+  filename: "api-reference.json",
+  docFolder: "./docs/api-files",
+  options: {
+    maxFileSizeMB: 5,
+    overwrite: false
   }
 });
 ```

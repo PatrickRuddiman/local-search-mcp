@@ -5,16 +5,18 @@ Build an MCP server that indexes, chunks, and serves local files for AI context 
 
 ## Core Functionality
 - **File Indexing**: Process files from a specified folder path
+- **Repository Fetching**: Clone and convert GitHub repositories to markdown using repomix
+- **Single File Fetching**: Download individual files from URLs and index them
 - **Text Chunking**: Intelligently split documents into manageable sections
 - **Embedding Generation**: Create vector representations for semantic search
 - **Similarity Search**: Find relevant content based on natural language queries
 - **Local File System Integration**: Work with existing MCP filesystem tools for access
 
+
 ## Supported File Types
-- Plain text (`.txt`, `.md`, `.json`)
-- Documentation formats (`.rst`, `.yaml`, `.yml`)
-- Code files for context (`.js`, `.ts`, `.py`, etc.)
-- Extensible for additional formats
+- **Local Indexing**: Plain text (`.txt`, `.md`, `.json`), Documentation (`.rst`, `.yaml`, `.yml`), Code files (`.js`, `.ts`, `.py`, etc.)
+- **Repository Fetching**: Limited to documentation-focused formats (`.txt`, `.md`, `.json`, `.rst`, `.yaml`, `.yml`) via repomix
+- **Extensible**: Support for additional formats configurable per tool
 
 ## Key Features
 ### Indexing Pipeline
@@ -22,7 +24,7 @@ Build an MCP server that indexes, chunks, and serves local files for AI context 
 2. File content extraction
 3. Document chunking with overlap
 4. Embedding computation using transformers
-5. In-memory vector storage with optional persistence
+5. persistant vector storage
 
 ### Search Interface
 - Text query input
@@ -41,6 +43,8 @@ Build an MCP server that indexes, chunks, and serves local files for AI context 
 ### MCP Tools
 - `index_files`: Process folder and build index
 - `search_documents`: Query indexed content
+- `fetch_repo`: Clone GitHub repository, convert to markdown using repomix, and add to searchable index
+- `fetch_file`: Download individual files from URLs and add to searchable index
 - `get_file_details`: Retrieve specific chunks with full context
 - `update_index`: Incremental updates to existing index
 
@@ -60,6 +64,7 @@ Build an MCP server that indexes, chunks, and serves local files for AI context 
 - `@xenova/transformers` for embeddings
 - `langchain` for text processing
 - `@modelcontextprotocol/sdk` for MCP compliance
+- `repomix` for GitHub repository cloning and markdown conversion
 - Standard Node.js libraries
 
 ## Testing

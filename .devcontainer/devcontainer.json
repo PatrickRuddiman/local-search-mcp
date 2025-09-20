@@ -1,0 +1,16 @@
+{
+  "name": "Local Search MCP",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+  "features": {},
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.vscode-json",
+        "ms-vscode.vscode-typescript-language-features",
+        "ms-vscode.remote-containers"
+      ]
+    }
+  },
+  "forwardPorts": [],
+  "postCreateCommand": "npm install"
+}
