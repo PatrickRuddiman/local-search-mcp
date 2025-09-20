@@ -24,7 +24,8 @@ export class Logger {
   private fileEnabled = true;
 
   private constructor() {
-    this.logFile = path.join(process.cwd(), 'local-search-mcp.log');
+    const dataFolder = process.env.MCP_DATA_FOLDER || process.cwd();
+    this.logFile = path.join(dataFolder, 'local-search-mcp.log');
 
     // Initialize file stream
     try {

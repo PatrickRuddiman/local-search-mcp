@@ -39,7 +39,8 @@ export class VectorIndex {
   constructor(dbPath?: string) {
     log.debug('Initializing VectorIndex');
 
-    this.dbPath = dbPath || path.join(process.cwd(), 'local-search-index.db');
+    const dataFolder = process.env.MCP_DATA_FOLDER || process.cwd();
+    this.dbPath = dbPath || path.join(dataFolder, 'local-search-index.db');
     log.debug('VectorIndex database location', { dbPath: this.dbPath });
 
     this.db = new Database(this.dbPath);
