@@ -22,7 +22,6 @@ import os from 'os';
 export interface SearchServiceConfig {
   textChunkerConfig?: ChunkingConfig;
   embeddingConfig?: EmbeddingConfig;
-  defaultIndexPath?: string;
 }
 
 export class SearchService {
@@ -33,24 +32,21 @@ export class SearchService {
   private config: Required<SearchServiceConfig>;
 
   constructor(config: SearchServiceConfig = {}) {
-    log.debug('Initializing SearchService', { config });
-
+    
     this.config = {
       textChunkerConfig: {},
       embeddingConfig: {},
-      defaultIndexPath: './local-search-index.db',
       ...config
     };
-
+    
+    log.debug('Initializing SearchService', { config });
     log.debug('Creating service dependencies');
     this.fileProcessor = new FileProcessor();
     this.textChunker = new TextChunker(this.config.textChunkerConfig);
     this.embeddingService = new EmbeddingService(this.config.embeddingConfig);
-    this.vectorIndex = new VectorIndex(this.config.defaultIndexPath);
+    this.vectorIndex = new VectorIndex();
 
-    log.info('SearchService initialized successfully', {
-      indexPath: this.config.defaultIndexPath
-    });
+    log.info('SearchService initialized successfully');
   }
 
   /**
