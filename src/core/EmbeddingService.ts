@@ -1,41 +1,38 @@
-import { pipeline, FeatureExtractionPipeline } from '@xenova/transformers';
+import * as use from '@tensorflow-models/universal-sentence-encoder';
+import * as tf from '@tensorflow/tfjs-node';
 import { DocumentChunk, EmbeddingError } from '../types/index.js';
 
 export interface EmbeddingConfig {
-  model?: string;
-  useGPU?: boolean;
-  batchSize?: number;
-  poolingMethod?: 'mean' | 'cls';
-  normalize?: boolean;
+  modelName?: string;  // For future use if switching models
+  batchSize?: number;  // Batch processing size
 }
 
 export class EmbeddingService {
-  private extractor?: FeatureExtractionPipeline;
+  private model?: use.UniversalSentenceEncoder;
   private config: Required<EmbeddingConfig>;
   private initialized = false;
 
   constructor(config: EmbeddingConfig = {}) {
     this.config = {
-      model: 'Xenova/paraphrase-multilingual-minilm-l12-v2', // Smaller, multilingual model
-      useGPU: true,
-      batchSize: 16,
-      poolingMethod: 'mean' as const,
-      normalize: true,
+      modelName: 'universal-sentence-encoder', // Universal sentence encoder
+      batchSize: 32, // USE can handle larger batches
       ...config
     };
   }
 
   /**
-   * Initialize the embedding model
+   * Initialize the embedding model (Universal Sentence Encoder)
    */
   async initialize(): Promise<void> {
     try {
-      this.extractor = await pipeline('feature-extraction', this.config.model);
+      console.log('Loading Universal Sentence Encoder model...');
+      this.model = await use.load();
       this.initialized = true;
+      console.log('Universal Sentence Encoder loaded successfully');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new EmbeddingError(
-        `Failed to initialize embedding model: ${message}`,
+        `Failed to initialize Universal Sentence Encoder: ${message}`,
         error instanceof Error ? error : undefined
       );
     }
@@ -47,12 +44,12 @@ export class EmbeddingService {
    * @returns Chunks with embeddings added
    */
   async generateEmbeddings(chunks: DocumentChunk[]): Promise<DocumentChunk[]> {
-    if (!this.initialized) {
+    if (!this.initialized || !this.model) {
       await this.initialize();
     }
 
-    if (!this.extractor) {
-      throw new EmbeddingError('Embedding extractor not initialized');
+    if (!this.model) {
+      throw new EmbeddingError('Universal Sentence Encoder not initialized');
     }
 
     try {
@@ -62,6 +59,8 @@ export class EmbeddingService {
 
       for (let i = 0; i < chunks.length; i += batchSize) {
         const batch = chunks.slice(i, i + batchSize);
+        console.log(`Processing batch ${Math.floor(i / batchSize) + 1}: ${batch.length} chunks`);
+
         const batchEmbeddings = await this.processBatch(batch);
         results.push(...batchEmbeddings);
       }
@@ -76,23 +75,28 @@ export class EmbeddingService {
   }
 
   /**
-   * Process a single batch of chunks
+   * Process a single batch of chunks using Universal Sentence Encoder
    */
   private async processBatch(chunks: DocumentChunk[]): Promise<DocumentChunk[]> {
+    if (!this.model) {
+      throw new EmbeddingError('Model not initialized');
+    }
+
     const texts = chunks.map(chunk => this.prepareText(chunk.content));
 
     try {
-      // Generate embeddings for batch
-      const outputs = await this.extractor!(texts, {
-        pooling: this.config.poolingMethod,
-        normalize: this.config.normalize
-      });
+      // Generate embeddings using Universal Sentence Encoder
+      const embeddings = await this.model.embed(texts);
 
-      // Extract embedding vectors and update chunks
+      // Extract embedding vectors from TensorFlow tensor
+      const embeddingArray = await embeddings.array();
+
+      // Add embeddings to chunks
       return chunks.map((chunk, index) => ({
         ...chunk,
-        embedding: Array.from((outputs as any)[index].data as any) // Convert Tensor to array
+        embedding: Array.from(embeddingArray[index] as number[]) // Convert tensor to array
       }));
+
     } catch (error: any) {
       console.warn('Batch processing failed, processing individually:', error.message);
 
@@ -119,28 +123,26 @@ export class EmbeddingService {
   }
 
   /**
-   * Generate embedding for single text
+   * Generate embedding for single text using Universal Sentence Encoder
    */
   private async generateSingleEmbedding(text: string): Promise<number[]> {
-    if (!this.extractor) {
-      throw new EmbeddingError('Extractor not initialized');
+    if (!this.model) {
+      throw new EmbeddingError('Model not initialized');
     }
 
     const preparedText = this.prepareText(text);
-    const output = await this.extractor(preparedText, {
-      pooling: this.config.poolingMethod,
-      normalize: this.config.normalize
-    });
+    const embedding = await this.model.embed([preparedText]);
+    const embeddingArray = await embedding.array();
 
-    return Array.from(output.data);
+    return Array.from(embeddingArray[0] as number[]);
   }
 
   /**
    * Prepare text for embedding (truncate, clean)
    */
   private prepareText(text: string): string {
-    // Truncate very long texts (model has limits)
-    const maxLength = 512; // Conservative limit for transformer models
+    // Universal Sentence Encoder can handle up to ~512 tokens
+    const maxLength = 2000; // Character limit (approximates token limit)
     let prepared = text.trim();
 
     if (prepared.length > maxLength) {
@@ -159,6 +161,14 @@ export class EmbeddingService {
    * @returns Query embedding vector
    */
   async embedQuery(query: string): Promise<number[]> {
+    if (!this.initialized || !this.model) {
+      await this.initialize();
+    }
+
+    if (!this.model) {
+      throw new EmbeddingError('Model not initialized');
+    }
+
     return await this.generateSingleEmbedding(query);
   }
 
@@ -195,14 +205,14 @@ export class EmbeddingService {
   }
 
   /**
-   * Check if GPU is available
+   * Check if GPU is available (TensorFlow.js will use it automatically if available)
    * @returns GPU availability
    */
   static async isGPUAvailable(): Promise<boolean> {
     try {
-      // Simple heuristic - in production, you'd check more thoroughly
-      return typeof (globalThis as any).navigator !== 'undefined' &&
-             (globalThis as any).navigator.hardwareConcurrency > 2;
+      // TensorFlow.js will automatically use GPU if available
+      // For Node.js with tfjs-node, GPU support depends on CUDA installation
+      return tf.getBackend() === 'tensorflow'; // GPU backend
     } catch {
       return false;
     }
@@ -214,21 +224,26 @@ export class EmbeddingService {
    */
   getModelInfo(): { model: string; dimensions: number; gpuEnabled: boolean } {
     return {
-      model: this.config.model,
-      dimensions: 384, // Known dimension for sentence transformers
-      gpuEnabled: this.config.useGPU
+      model: this.config.modelName,
+      dimensions: 512, // Universal Sentence Encoder dimension
+      gpuEnabled: tf.getBackend() === 'tensorflow'
     };
   }
 
   /**
-   * Clean up resources
+   * Clean up TensorFlow resources
    */
   dispose(): void {
-    // Clean up model resources if needed
-    if (this.extractor) {
-      // Transformers usually handle cleanup automatically
-      this.extractor = undefined;
+    // Clean up TensorFlow resources
+    if (this.model) {
+      // Universal Sentence Encoder cleanup
+      this.model = undefined;
     }
+
+    // Dispose of any remaining Tensors
+    tf.disposeVariables();
+
     this.initialized = false;
+    console.log('EmbeddingService disposed');
   }
 }
