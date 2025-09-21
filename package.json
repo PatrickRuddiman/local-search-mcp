@@ -24,7 +24,7 @@
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^20.19.17",
     "tsx": "^4.7.3",
-    "typescript": "^5.5.4"
+    "typescript": "^5.9.2"
   },
   "keywords": [
     "mcp",

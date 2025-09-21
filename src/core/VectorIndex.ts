@@ -410,11 +410,10 @@ export class VectorIndex {
       }
 
       // Get file size (approximate)
-      const fs = require('fs').promises;
       let dbSize = 0;
 
       try {
-        const stats = await fs.stat(this.dbPath);
+        const stats = await fs.promises.stat(this.dbPath);
         dbSize = stats.size;
       } catch { } // Ignore file size errors
 

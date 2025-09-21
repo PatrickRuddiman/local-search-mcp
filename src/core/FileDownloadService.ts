@@ -98,7 +98,8 @@ export class FileDownloadService {
       if (options.indexAfterSave !== false) {
         log.debug('Starting file indexing', { operationId, filePath });
         const indexTimer = log.time(`index-file-${operationId}`);
-        indexResult = await this.searchService.indexFiles(filePath, {
+        // indexFiles expects a directory, so pass the parent directory
+        indexResult = await this.searchService.indexFiles(targetFolder, {
           chunkSize: 1000,
           overlap: 200,
           maxFiles: 1

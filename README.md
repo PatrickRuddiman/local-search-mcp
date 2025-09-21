@@ -220,15 +220,17 @@ Clone and process a GitHub repository using repomix.
   repoUrl: string,         // GitHub repository URL
   branch?: string,         // Branch/tag/commit (optional)
   options?: {
-    includePatterns?: string[],
-    excludePatterns?: string[],
-    maxFiles?: number,
-    outputStyle?: 'markdown',
-    removeComments?: boolean,
-    showLineNumbers?: boolean
+    includePatterns?: string[],    // Default: ["**/*.md", "**/*.mdx", "**/*.txt", "**/*.json", "**/*.rst", "**/*.yml", "**/*.yaml"]
+    excludePatterns?: string[],    // Default: ["**/node_modules/**", "**/venv/**", "**/.git/**"]
+    maxFiles?: number,             // Default: 1000
+    outputStyle?: 'markdown',      // Fixed to markdown
+    removeComments?: boolean,      // Default: false
+    showLineNumbers?: boolean      // Default: true
   }
 }
 ```
+
+**Note:** Uses recursive glob patterns (`**/*.ext`) for comprehensive file discovery. Supports all major documentation and configuration file types.
 
 **Returns:** Processing statistics and output location.
 
@@ -404,6 +406,18 @@ node --max-old-space-size=4096 build/index.js
 ```bash
 # Fix docs folder permissions
 chmod -R 755 ~/.local/share/local-search-mcp/
+```
+
+#### Individual File Indexing Issues
+```bash
+# Fixed in latest version - files are now properly indexed
+# using the parent directory for SearchService.indexFiles()
+```
+
+#### VectorIndex Statistics Errors
+```bash
+# Fixed in latest version - VectorIndex.getStatistics() now works correctly
+# with proper ES module imports
 ```
 
 #### Slow Search/Google Colab Performance

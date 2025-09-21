@@ -126,7 +126,7 @@ export class RepoService {
   ): Promise<void> {
     try {
       // Build include and exclude patterns
-      const includePatterns = options.includePatterns || ['*.md', '*.txt', '*.json', '*.rst'];
+      const includePatterns = options.includePatterns || ['**/*.md', '**/*.mdx', '**/*.txt', '**/*.json', '**/*.rst', '**/*.yml', '**/*.yaml'];
       const excludePatterns = [
         ...(options.excludePatterns || []),
         'node_modules/**',
@@ -154,10 +154,11 @@ export class RepoService {
 
       // Use repomix library to process repository with remote options
       const repomixTimer = log.time('repomix-processing');
+      const outputFile = path.join(outputDir, `${this.extractRepoName(repoUrl)}.md`);
       await runCli(['.'], outputDir, {
         remote: repoUrl,
         remoteBranch: branch,
-        output: outputDir,
+        output: outputFile,
         include,
         ignore: exclude,
         style: options.outputStyle || 'markdown',

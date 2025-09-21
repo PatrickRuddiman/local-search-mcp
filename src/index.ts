@@ -205,7 +205,7 @@ class LocalSearchServer {
               options: {
                 type: 'object',
                 properties: {
-                  includePatterns: { type: 'array', items: { type: 'string' }, default: ['*.md', '*.txt', '*.json', '*.rst'], description: 'File patterns to include' },
+                  includePatterns: { type: 'array', items: { type: 'string' }, default: ['**/*.md', '**/*.mdx', '**/*.txt', '**/*.json', '**/*.rst', '**/*.yml', '**/*.yaml'], description: 'File patterns to include' },
                   excludePatterns: { type: 'array', items: { type: 'string' }, default: ['**/node_modules/**'], description: 'File patterns to exclude' },
                   maxFiles: { type: 'number', default: 1000, description: 'Maximum files to process' },
                   outputStyle: { type: 'string', enum: ['markdown'], default: 'markdown', description: 'Output format (fixed to markdown)' },
@@ -446,7 +446,7 @@ class LocalSearchServer {
       const result = await this.fileDownloadService.downloadFile(
         args.url,
         args.filename,
-        args.docFolder || './docs/fetched',
+        args.docFolder, // Let the service use its own default
         args.options || {}
       );
 
