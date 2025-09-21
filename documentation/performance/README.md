@@ -179,133 +179,9 @@ const repoConfig = {
 };
 ```
 
-## 📈 Monitoring and Profiling
+## 📊 Current Monitoring
 
-### Performance Metrics Tracking
-
-```typescript
-interface PerformanceMetrics {
-  // Processing metrics
-  filesProcessed: number;
-  totalProcessingTime: number;
-  averageFileSize: number;
-
-  // Search metrics
-  totalQueries: number;
-  averageQueryTime: number;
-  resultQualityScore: number;
-
-  // Resource usage
-  memoryUsage: number;
-  cpuUsage: number;
-  diskIO: number;
-}
-
-class PerformanceMonitor {
-  private metrics: PerformanceMetrics = {
-    filesProcessed: 0,
-    totalProcessingTime: 0,
-    averageFileSize: 0,
-    totalQueries: 0,
-    averageQueryTime: 0,
-    resultQualityScore: 0,
-    memoryUsage: 0,
-    cpuUsage: 0,
-    diskIO: 0
-  };
-
-  trackProcessing(fileSize: number, processingTime: number) {
-    this.metrics.filesProcessed++;
-    this.metrics.totalProcessingTime += processingTime;
-    this.metrics.averageFileSize = (
-      (this.metrics.averageFileSize * (this.metrics.filesProcessed - 1)) +
-      fileSize
-    ) / this.metrics.filesProcessed;
-  }
-
-  trackQuery(queryTime: number, resultCount: number, avgScore: number) {
-    this.metrics.totalQueries++;
-    this.metrics.averageQueryTime = (
-      (this.metrics.averageQueryTime * (this.metrics.totalQueries - 1)) +
-      queryTime
-    ) / this.metrics.totalQueries;
-    this.metrics.resultQualityScore = (
-      (this.metrics.resultQualityScore * (this.metrics.totalQueries - 1)) +
-      (resultCount * avgScore)
-    ) / this.metrics.totalQueries;
-  }
-}
-```
-
-### Memory Profiling
-
-```typescript
-// Track memory usage patterns
-function createMemoryProfiler() {
-  const profiler = {
-    startTime: Date.now(),
-    initialMemory: process.memoryUsage(),
-
-    checkMemory: () => {
-      const current = process.memoryUsage();
-      const delta = {
-        rss: current.rss - profiler.initialMemory.rss,
-        heapUsed: current.heapUsed - profiler.initialMemory.heapUsed,
-        heapTotal: current.heapTotal - profiler.initialMemory.heapTotal,
-        external: current.external - profiler.initialMemory.external
-      };
-
-      console.log(`Memory Delta (${Date.now() - profiler.startTime}ms):`);
-      console.log(`  RSS: ${(delta.rss / 1024 / 1024).toFixed(2)}MB`);
-      console.log(`  Heap Used: ${(delta.heapUsed / 1024 / 1024).toFixed(2)}MB`);
-
-      return delta;
-    },
-
-    reset: () => {
-      profiler.startTime = Date.now();
-      profiler.initialMemory = process.memoryUsage();
-    }
-  };
-
-  return profiler;
-}
-```
-
-### Performance Profiling
-
-```typescript
-// Enable Node.js performance hooks
-import { performance, PerformanceObserver } from 'perf_hooks';
-
-const observer = new PerformanceObserver((list) => {
-  for (const entry of list.getEntries()) {
-    console.log(`[${entry.name}] ${entry.duration}ms`);
-  }
-});
-observer.observe({ entryTypes: ['measure'] });
-
-// Usage in search service
-async searchDocuments(query: string) {
-  const startMark = `${query}-search-start`;
-  const endMark = `${query}-search-end`;
-  const measureName = `${query}-measurement`;
-
-  performance.mark(startMark);
-
-  try {
-    // ... search logic ...
-
-    performance.mark(endMark);
-    performance.measure(measureName, startMark, endMark);
-
-    return results;
-  } catch (error) {
-    // Handle and cleanup
-    throw error;
-  }
-}
-```
+The system provides basic performance timing through the Logger utility. Processing durations and chunk counts are logged for all operations.
 
 ## 🎯 Advanced Optimizations
 
@@ -334,33 +210,9 @@ const modelOptions = {
 };
 ```
 
-#### Batch Processing Optimization
+#### Current Batch Processing
 
-```typescript
-// Adaptive batch sizing based on available memory
-function optimizeBatchSize(documents: DocumentChunk[]): number {
-  const memoryPerDocument = 1024 * 1024; // ~1MB per doc for embeddings
-  const availableMemory = process.memoryUsage().heapTotal - process.memoryUsage().heapUsed;
-
-  const maxBatchSize = Math.floor(availableMemory / memoryPerDocument * 0.8);
-
-  // Consider CPU core count
-  const cpuCount = os.cpus().length;
-  const optimalBatchSize = Math.min(maxBatchSize, cpuCount * 4);
-
-  return Math.max(1, optimalBatchSize);
-}
-
-// Usage
-async function processEmbeddings(documents: DocumentChunk[]) {
-  const batchSize = optimizeBatchSize(documents);
-
-  for (let i = 0; i < documents.length; i += batchSize) {
-    const batch = documents.slice(i, i + batchSize);
-    await embeddingService.generateEmbeddings(batch);
-  }
-}
-```
+The system processes embeddings in small batches (10 chunks) with event loop yielding between batches to prevent MCP server blocking.
 
 ### Database Query Optimization
 
@@ -383,45 +235,10 @@ LIMIT $limit;
 
 #### Index Maintenance
 
-```typescript
-// Automated index maintenance
-class DatabaseOptimizer {
-  private db: Database;
-
-  constructor(db: Database) {
-    this.db = db;
-  }
-
-  async vacuumAndAnalyze() {
-    console.log('Starting database optimization...');
-
-    // Vacuum to reclaim space
-    await this.db.exec('VACUUM');
-
-    // Analyze tables for query optimization
-    await this.db.exec('ANALYZE vector_index');
-    await this.db.exec('ANALYZE chunk_metadata');
-
-    // Checkpoint WAL
-    await this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-
-    console.log('Database optimization complete');
-  }
-
-  async monitorPerformance() {
-    const stats = await this.db.prepare(`
-      SELECT
-        name,
-        type,
-        sql
-      FROM sqlite_master
-      WHERE type IN ('index', 'table')
-    `).all();
-
-    console.log('Database statistics:', stats);
-  }
-}
-```
+Basic database maintenance can be performed using:
+- `VACUUM` - Reclaim space and optimize tables
+- `ANALYZE` - Update query optimizer statistics
+- `PRAGMA wal_checkpoint(TRUNCATE)` - Clean up WAL file
 
 ## 🚨 Performance Troubleshooting
 
@@ -456,18 +273,7 @@ export MAX_FILE_CONCURRENCY=2
 export CHUNK_SIZE=500
 ```
 
-**Symptom: File watching becomes unresponsive**
 
-```bash
-# Check file watcher status
-curl http://localhost:3000/status
-
-# Restart file watcher
-export RESTART_WATCHER=true
-
-# Increase watcher resources
-export MAX_WATCHER_CONCURRENCY=4
-```
 
 **Symptom: Embedding generation is slow**
 
@@ -523,81 +329,7 @@ const logger = {
 
 ### Resource Monitoring
 
-#### Real-time Performance Dashboard
-
-```typescript
-class PerformanceDashboard {
-  private metrics: Map<string, number[]>;
-
-  constructor() {
-    this.metrics = new Map();
-    setInterval(() => this.reportMetrics(), 60000); // Every minute
-  }
-
-  recordMetric(name: string, value: number) {
-    if (!this.metrics.has(name)) {
-      this.metrics.set(name, []);
-    }
-
-    const values = this.metrics.get(name)!;
-    values.push(value);
-
-    // Keep only last 100 values
-    if (values.length > 100) {
-      values.shift();
-    }
-  }
-
-  reportMetrics() {
-    console.log('\n=== Performance Dashboard ===');
-
-    for (const [name, values] of this.metrics.entries()) {
-      const avg = values.reduce((a, b) => a + b, 0) / values.length;
-      const min = Math.min(...values);
-      const max = Math.max(...values);
-
-      console.log(`${name}: avg=${avg.toFixed(2)}, min=${min.toFixed(2)}, max=${max.toFixed(2)}`);
-    }
-
-    console.log('================================\n');
-  }
-}
-```
-
-### Configuration Tuning Guidance
-
-#### Auto-Tuning Configuration
-
-```typescript
-// Auto-tune based on system capabilities
-function autoTuneConfig(): ConcurrencyConfig {
-  const cpuCount = os.cpus().length;
-  const totalMemory = os.totalmem() / 1024 / 1024 / 1024; // GB
-
-  let config: ConcurrencyConfig = {};
-
-  // Base concurrency on CPU cores
-  config.maxFileProcessingConcurrency = Math.min(cpuCount, 8);
-  config.maxEmbeddingConcurrency = Math.min(Math.floor(cpuCount / 2), 4);
-
-  // Adjust based on memory
-  if (totalMemory < 4) {
-    // Low memory system
-    config.maxFileProcessingConcurrency = Math.max(1, Math.floor(config.maxFileProcessingConcurrency / 2));
-    config.maxEmbeddingConcurrency = 1;
-  } else if (totalMemory > 16) {
-    // High memory system
-    config.maxFileProcessingConcurrency = Math.min(config.maxFileProcessingConcurrency * 1.5, 16);
-  }
-
-  // Directory operations
-  config.maxDirectoryConcurrency = config.maxFileProcessingConcurrency * 2;
-  config.maxFileWatcherConcurrency = Math.max(1, Math.floor(config.maxFileProcessingConcurrency / 2));
-  config.maxRepositoryConcurrency = Math.max(1, Math.floor(config.maxFileProcessingConcurrency / 4));
-
-  return config;
-}
-```
+Memory usage and processing statistics are logged automatically during operations.
 
 ---
 

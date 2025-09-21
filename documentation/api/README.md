@@ -83,7 +83,7 @@ Retrieve detailed content and chunk information for specific indexed files.
 |-----------|------|----------|---------|-------------|
 | `filePath` | `string` | ✅ | - | Absolute path to indexed file |
 | `chunkIndex` | `number?` | ❌ | - | Specific chunk index to retrieve (0-based) |
-| `contextLines` | `number?` | ❌ | `3` | Lines of context around chunk (0-20) |
+| `contextSize` | `number` | ❌ | `3` | Number of surrounding chunks to include (0-10) |
 
 #### Response Schema
 
@@ -274,6 +274,7 @@ export interface SearchResult {
   totalResults: number;         // Total results found
   searchTime: number;           // Search duration in ms
   options: SearchOptions;       // Search parameters used
+  nextSteps: string[];          // Suggested follow-up queries
 }
 
 export interface VectorIndexStatistics {
@@ -361,50 +362,14 @@ export interface FileDownloadOptions {
 
 ## ⚠️ Error Handling
 
-### Error Categories
+All API errors are returned via MCP protocol error responses with details about the operation that failed. Common scenarios include:
 
-| Error Code | Category | Description | Recovery |
-|------------|----------|-------------|----------|
-| `FILE_PROCESSING_ERROR` | File I/O | File reading/parsing failures | Check file permissions, format |
-| `EMBEDDING_ERROR` | ML/Model | Embedding generation failures | Check GPU memory, model loading |
-| `STORAGE_ERROR` | Database | SQLite operation failures | Check disk space, permissions |
-| `NETWORK_ERROR` | HTTP | Download/upload failures | Check connectivity, retry later |
+- **File access errors**: Permission issues, file not found, unsupported formats
+- **Network failures**: Download timeouts, invalid URLs, rate limiting
+- **Processing errors**: Large files, corrupted data, model loading issues
+- **Storage problems**: Database corruption, out of disk space
 
-### Error Response Format
-
-```typescript
-interface MCPError {
-  type: 'error';
-  error: {
-    code: string;
-    message: string;
-    data?: any;
-  };
-}
-```
-
-### Common Error Scenarios
-
-#### File Processing Errors
-- **Invalid file format** - Unsupported file type or corruption
-- **Permission denied** - Directory/file access restrictions
-- **File too large** - Exceeds configured size limits
-- **Empty file** - No readable content
-
-#### Embedding Errors
-- **Model loading failure** - Missing model files or network issues
-- **GPU memory exhaustion** - Insufficient VRAM for large batches
-- **Token limit exceeded** - Text too long for model constraints
-
-#### Storage Errors
-- **Database corruption** - File system issues or concurrent access
-- **Disk space exhausted** - Insufficient storage for index
-- **Schema mismatches** - Database version incompatibility
-
-#### Network Errors
-- **Timeout** - Request took too long
-- **Rate limiting** - Too many requests to external services
-- **Authentication failed** - Invalid credentials or API keys
+Error responses include descriptive messages and can be handled by your MCP client for appropriate user feedback.
 
 ## 🔍 Usage Examples
 
@@ -453,7 +418,7 @@ await fetch_file({
 await get_file_details({
   filePath: "/docs/api.md",
   chunkIndex: 2,  // Specific chunk
-  contextLines: 5  // More context
+  contextSize: 5  // More context chunks
 });
 ```
 

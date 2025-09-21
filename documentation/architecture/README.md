@@ -68,8 +68,7 @@ This document describes the system architecture, design patterns, and component 
 | Component | Responsibility | Key Features |
 |-----------|----------------|--------------|
 | **SearchService** | - Primary API for indexing/searching<br>- Pipeline orchestration<br>- Result ranking and filtering<br>- Error aggregation | - Parallel processing with p-limit<br>- Memory-efficient batching<br>- Comprehensive error handling |
-| **RepoService** | - GitHub repository processing<br>- repomix integration<br>- Directory management | - Temporary file handling<br>- Pattern filtering<br>- Progress tracking |
-| **FileDownloadService** | - HTTP file downloads<br>- Content validation<br>- Size restrictions | - Timeout handling<br>- Stream processing<br>- Automatic indexing |
+| **BackgroundProcessor** | - Asynchronous file processing<br>- Repository downloading via repomix<br>- HTTP file downloads with progress<br>- Event loop yielding for MCP responsiveness | - setImmediate() yielding<br>- Batch embedding processing<br>- Job progress tracking |
 
 ### 💾 Persistence Layer
 
@@ -85,10 +84,18 @@ This document describes the system architecture, design patterns, and component 
 
 | Component | Responsibility | Key Features |
 |-----------|----------------|--------------|
-| **FileProcessor** | - Multi-format text extraction<br>- Character encoding handling<br>- Size validation | - 10 file types supported<br>- Content sanitization<br>- Memory limits |
-| **TextChunker** | - Intelligent document segmentation<br>- Overlap management<br>- Content preservation | - configurable chunk sizes<br>- Semantic boundary detection<br>- Token counting |
-| **EmbeddingService** | - Vector generation using transformers<br>- GPU acceleration<br>- Batch processing | - Multiple model support<br>- Memory optimization<br>- Error recovery |
-| **FileWatcher** | - Filesystem monitoring<br>- Event debouncing<br>- Automatic re-indexing | - Cross-platform paths<br>- Pattern filtering<br>- Change detection |
+| **FileProcessor** | - Multi-format text extraction<br>- Character encoding handling<br>- Size validation | - 8 file types supported<br>- Content sanitization<br>- Memory limits |
+| **TextChunker** | - Intelligent document segmentation<br>- Overlap management<br>- Content preservation | - Event loop yielding<br>- Configurable chunk sizes<br>- Token counting |
+| **EmbeddingService** | - Vector generation using transformers<br>- GPU acceleration<br>- Batch processing | - Single model instance<br>- Memory optimization<br>- Error recovery |
+| **ProgressManager** | - Job progress tracking<br>- Callback registration<br>- Event loop yielding | - Real-time progress updates<br>- setImmediate() yielding<br>- Background coordination |
+
+### 🎯 Job Management Layer
+
+**Purpose**: Handle background processing jobs and progress reporting
+
+| Component | Responsibility | Key Features |
+|-----------|----------------|--------------|
+| **JobManager** | - Job lifecycle management<br>- Status tracking<br>- Result storage | - In-memory job storage<br>- Progress callbacks<br>- Error aggregation |
 
 ## 🔄 Data Flow Architecture
 
