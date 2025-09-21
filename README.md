@@ -71,7 +71,8 @@ Add to your `claude_mcp_settings.json`:
         "/absolute/path/to/local-search-mcp/build/index.js"
       ],
       "env": {
-        "MCP_DOCS_FOLDER": "/optional/custom/docs/path"
+        "MCP_DOCS_FOLDER": "/optional/custom/docs/path",
+        "MCP_DATA_FOLDER": "/optional/custom/data/path"
       }
     }
   }
