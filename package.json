@@ -18,7 +18,8 @@
     "chokidar": "^4.0.1",
     "langchain": "^0.2.18",
     "p-limit": "^6.2.0",
-    "repomix": "^1.6.0"
+    "repomix": "^1.6.0",
+    "sqlite-vec": "^0.1.7-alpha.2"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",

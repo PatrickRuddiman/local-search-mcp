@@ -5,35 +5,25 @@ import { log } from './Logger.js';
 
 export class FileProcessor {
   private supportedExtensions: Set<string>;
+  private maxFileSizeMB: number;
 
-  constructor() {
-    log.debug('Initializing FileProcessor');
+  constructor(maxFileSizeMB: number = 1024) {
+    log.debug('Initializing FileProcessor', { maxFileSizeMB });
+    this.maxFileSizeMB = maxFileSizeMB;
     this.supportedExtensions = new Set([
       '.txt', '.md', '.json', '.yaml', '.yml', '.rst',
       '.js', '.ts', '.py', '.java', '.c', '.cpp', '.h',
       '.css', '.scss', '.html', '.xml', '.csv'
     ]);
     log.debug('FileProcessor initialized successfully', {
-      supportedExtensions: Array.from(this.supportedExtensions)
+      supportedExtensions: Array.from(this.supportedExtensions),
+      maxFileSizeMB: this.maxFileSizeMB
     });
   }
 
-  /**
-   * Check if a file extension is supported
-   * @param filePath File path to check
-   * @returns true if supported
-   */
   isFileSupported(filePath: string): boolean {
     const ext = path.extname(filePath).toLowerCase();
-    const supported = this.supportedExtensions.has(ext);
-
-    log.debug('File support check', {
-      filePath,
-      extension: ext,
-      supported
-    });
-
-    return supported;
+    return this.supportedExtensions.has(ext);
   }
 
   /**
@@ -58,14 +48,15 @@ export class FileProcessor {
         throw new FileProcessingError(`Path is a directory: ${filePath}`);
       }
 
-      if (stats.size > 10 * 1024 * 1024) { // 10MB limit
+      const maxSizeBytes = this.maxFileSizeMB * 1024 * 1024;
+      if (stats.size > maxSizeBytes) {
         log.warn('File size exceeds limit', {
           filePath,
           size: stats.size,
           sizeMB: (stats.size / 1024 / 1024).toFixed(1),
-          maxSizeMB: 10
+          maxSizeMB: this.maxFileSizeMB
         });
-        throw new FileProcessingError(`File too large: ${filePath} (${stats.size} bytes)`);
+        throw new FileProcessingError(`File too large: ${filePath} (${(stats.size / 1024 / 1024).toFixed(1)}MB exceeds ${this.maxFileSizeMB}MB limit)`);
       }
 
       log.debug('File validation passed', {

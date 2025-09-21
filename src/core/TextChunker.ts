@@ -29,54 +29,23 @@ export class TextChunker {
   }
 
   /**
-   * Chunk text into smaller segments
-   * @param text Input text to chunk
-   * @param filePath Original file path
-   * @param config Optional chunking configuration
-   * @returns Array of document chunks
+   * Splits text into document chunks with optional event loop yielding for large files
    */
-  chunkText(text: string, filePath: string, config?: Partial<ChunkingConfig>): DocumentChunk[] {
+  async chunkText(text: string, filePath: string, config?: Partial<ChunkingConfig>): Promise<DocumentChunk[]> {
     const timer = log.time(`chunk-text-${path.basename(filePath)}`);
     const mergedConfig = { ...this.defaultConfig, ...config };
 
-    log.debug('Starting text chunking', {
-      filePath,
-      textLength: text.length,
-      config: mergedConfig
-    });
-
     try {
-      // Pre-process text based on configuration
-      log.debug('Pre-processing text for chunking');
       const processedText = this.preprocessText(text, mergedConfig);
-
-      log.debug('Pre-processed text', {
-        filePath,
-        originalLength: text.length,
-        processedLength: processedText.length,
-        changed: processedText.length !== text.length
-      });
-
-      // Split text based on method
-      log.debug('Splitting text into segments', { method: mergedConfig.method });
-      const segments = this.splitIntoSegments(processedText, mergedConfig);
-
-      log.debug('Text segmented', {
-        filePath,
-        segmentCount: segments.length,
-        method: mergedConfig.method
-      });
-
-      // Create chunks with overlap
-      const chunks = this.createChunksWithOverlap(segments, filePath, mergedConfig);
+      const segments = await this.splitIntoSegmentsAsync(processedText, mergedConfig);
+      const chunks = await this.createChunksWithOverlapAsync(segments, filePath, mergedConfig);
 
       timer();
       log.info('Text chunking completed', {
         filePath,
         originalTextLength: text.length,
         chunksCreated: chunks.length,
-        totalTokens: chunks.reduce((sum, c) => sum + c.metadata.tokenCount, 0),
-        chunkConfig: mergedConfig
+        totalTokens: chunks.reduce((sum, c) => sum + c.metadata.tokenCount, 0)
       });
 
       return chunks;
@@ -131,7 +100,21 @@ export class TextChunker {
   }
 
   /**
-   * Split text into segments based on method
+   * Split text into segments based on method with event loop yielding
+   */
+  private async splitIntoSegmentsAsync(text: string, config: Required<ChunkingConfig>): Promise<string[]> {
+    switch (config.method) {
+      case 'sentence-aware':
+        return await this.splitBySentencesAsync(text);
+      case 'paragraph-aware':
+        return await this.splitByParagraphsAsync(text);
+      default:
+        return await this.splitFixedSizeAsync(text, config.chunkSize);
+    }
+  }
+
+  /**
+   * Split text into segments based on method (sync version for backward compatibility)
    */
   private splitIntoSegments(text: string, config: Required<ChunkingConfig>): string[] {
     switch (config.method) {
@@ -162,7 +145,66 @@ export class TextChunker {
   }
 
   /**
-   * Split text into fixed-size chunks
+   * Split text into fixed-size chunks with event loop yielding for large files
+   */
+  private async splitFixedSizeAsync(text: string, size: number): Promise<string[]> {
+    const chunks: string[] = [];
+    let currentIndex = 0;
+    let processedChunks = 0;
+
+    while (currentIndex < text.length) {
+      const endIndex = Math.min(currentIndex + size, text.length);
+      const chunk = text.slice(currentIndex, endIndex);
+
+      // Try to find a good breaking point (sentence or word boundary)
+      const adjustedChunk = this.findGoodBreakpoint(chunk, text, currentIndex, size);
+
+      chunks.push(adjustedChunk);
+      currentIndex += adjustedChunk.length;
+      processedChunks++;
+
+      // Yield control every 1000 chunks to prevent blocking
+      if (processedChunks % 1000 === 0) {
+        log.debug(`Processed ${processedChunks} text segments, yielding control`);
+        await new Promise(resolve => setImmediate(resolve));
+      }
+    }
+
+    return chunks;
+  }
+
+  /**
+   * Split text by sentences with event loop yielding
+   */
+  private async splitBySentencesAsync(text: string): Promise<string[]> {
+    // For sentence splitting, yield periodically for very large texts
+    const sentences = text.split(/[.!?]+\s+/);
+    
+    if (sentences.length > 10000) {
+      log.debug(`Processing ${sentences.length} sentences with yielding`);
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    
+    return sentences.filter(s => s.trim().length > 0);
+  }
+
+  /**
+   * Split text by paragraphs with event loop yielding
+   */
+  private async splitByParagraphsAsync(text: string): Promise<string[]> {
+    // For paragraph splitting, yield periodically for very large texts
+    const paragraphs = text.split(/\n\s*\n/);
+    
+    if (paragraphs.length > 5000) {
+      log.debug(`Processing ${paragraphs.length} paragraphs with yielding`);
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    
+    return paragraphs.filter(p => p.trim().length > 0);
+  }
+
+  /**
+   * Split text into fixed-size chunks (sync version)
    */
   private splitFixedSize(text: string, size: number): string[] {
     const chunks: string[] = [];
@@ -212,7 +254,51 @@ export class TextChunker {
   }
 
   /**
-   * Create chunks with overlap
+   * Create chunks with overlap and event loop yielding for large files
+   */
+  private async createChunksWithOverlapAsync(segments: string[], filePath: string, config: Required<ChunkingConfig>): Promise<DocumentChunk[]> {
+    const chunks: DocumentChunk[] = [];
+    const processedContent = segments.join(' ');
+    let currentIndex = 0;
+    let chunkIndex = 0;
+
+    while (currentIndex < processedContent.length) {
+      const endIndex = Math.min(currentIndex + config.chunkSize, processedContent.length);
+      const content = processedContent.slice(currentIndex, endIndex);
+
+      // Create chunk with guaranteed integer data types
+      const chunk: DocumentChunk = {
+        id: `${filePath}:${chunkIndex}`,
+        filePath,
+        chunkIndex: Math.floor(chunkIndex), // Ensure integer
+        content,
+        embedding: [], // Will be filled by embedding service
+        metadata: {
+          fileSize: Buffer.byteLength(processedContent, 'utf-8'),
+          lastModified: new Date(),
+          chunkOffset: Math.floor(currentIndex), // Ensure integer
+          tokenCount: Math.ceil(content.length / 4) // Already integer from Math.ceil
+        }
+      };
+
+      chunks.push(chunk);
+
+      // Calculate next starting position with overlap (ensure integer)
+      currentIndex = Math.floor(Math.max(currentIndex + config.chunkSize - config.overlap, currentIndex + 1));
+      chunkIndex = Math.floor(chunkIndex + 1); // Ensure integer increment
+
+      // Yield control every 1000 chunks to prevent blocking main thread
+      if (chunkIndex % 1000 === 0) {
+        log.debug(`Created ${chunkIndex} chunks, yielding control to event loop`);
+        await new Promise(resolve => setImmediate(resolve));
+      }
+    }
+
+    return chunks;
+  }
+
+  /**
+   * Create chunks with overlap (sync version for backward compatibility)
    */
   private createChunksWithOverlap(segments: string[], filePath: string, config: Required<ChunkingConfig>): DocumentChunk[] {
     const chunks: DocumentChunk[] = [];
@@ -224,26 +310,26 @@ export class TextChunker {
       const endIndex = Math.min(currentIndex + config.chunkSize, processedContent.length);
       const content = processedContent.slice(currentIndex, endIndex);
 
-      // Creat manually to allow for empty embeddings until embedding service processes them
+      // Create chunk with guaranteed integer data types
       const chunk: DocumentChunk = {
         id: `${filePath}:${chunkIndex}`,
         filePath,
-        chunkIndex,
+        chunkIndex: Math.floor(chunkIndex), // Ensure integer
         content,
         embedding: [], // Will be filled by embedding service
         metadata: {
           fileSize: Buffer.byteLength(processedContent, 'utf-8'),
           lastModified: new Date(),
-          chunkOffset: currentIndex,
-          tokenCount: Math.ceil(content.length / 4)
+          chunkOffset: Math.floor(currentIndex), // Ensure integer
+          tokenCount: Math.ceil(content.length / 4) // Already integer from Math.ceil
         }
       };
 
       chunks.push(chunk);
 
-      // Calculate next starting position with overlap
-      currentIndex = Math.max(currentIndex + config.chunkSize - config.overlap, currentIndex + 1);
-      chunkIndex++;
+      // Calculate next starting position with overlap (ensure integer)
+      currentIndex = Math.floor(Math.max(currentIndex + config.chunkSize - config.overlap, currentIndex + 1));
+      chunkIndex = Math.floor(chunkIndex + 1); // Ensure integer increment
     }
 
     return chunks;

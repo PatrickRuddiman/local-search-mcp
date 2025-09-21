@@ -1,242 +1,42 @@
-import { FileProcessor } from './FileProcessor.js';
-import { TextChunker, ChunkingConfig } from './TextChunker.js';
 import { EmbeddingService, EmbeddingConfig } from './EmbeddingService.js';
 import { VectorIndex } from './VectorIndex.js';
 import { log } from './Logger.js';
 import {
-  DocumentChunk,
   DocumentChunkOptimized,
-  IndexingResult,
   SearchResult,
-  SearchOptions,
-  IndexOptions,
-  ConcurrencyConfig,
-  FileProcessingError,
-  EmbeddingError,
-  StorageError
+  SearchOptions
 } from '../types/index.js';
-import path from 'path';
-import { promises as fs, Stats } from 'fs';
-import pLimit from 'p-limit';
-import os from 'os';
+import * as path from 'path';
 
 export interface SearchServiceConfig {
-  textChunkerConfig?: ChunkingConfig;
   embeddingConfig?: EmbeddingConfig;
 }
 
 export class SearchService {
-  private fileProcessor: FileProcessor;
-  private textChunker: TextChunker;
-  private embeddingService: EmbeddingService;
+  private embeddingService: EmbeddingService | null;
   private vectorIndex: VectorIndex;
   private config: Required<SearchServiceConfig>;
 
   constructor(config: SearchServiceConfig = {}) {
-    
     this.config = {
-      textChunkerConfig: {},
       embeddingConfig: {},
       ...config
     };
     
-    log.debug('Initializing SearchService', { config });
-    log.debug('Creating service dependencies');
-    this.fileProcessor = new FileProcessor();
-    this.textChunker = new TextChunker(this.config.textChunkerConfig);
-    this.embeddingService = new EmbeddingService(this.config.embeddingConfig);
+    this.embeddingService = null; // Will be initialized async
     this.vectorIndex = new VectorIndex();
 
-    log.info('SearchService initialized successfully');
+    log.info('SearchService initialized');
   }
 
   /**
-   * Index files from a directory with parallel processing
-   * @param folderPath Absolute path to folder
-   * @param options Indexing configuration
-   * @param concurrencyConfig Optional concurrency control
-   * @returns Indexing results
+   * Ensure EmbeddingService singleton is initialized
    */
-  async indexFiles(
-    folderPath: string,
-    options: IndexOptions = {},
-    concurrencyConfig: ConcurrencyConfig = {}
-  ): Promise<IndexingResult> {
-    const startTime = Date.now();
-    const errors: string[] = [];
-    let processedFiles = 0;
-    let totalChunks = 0;
-    let totalTokens = 0;
-
-    try {
-      // Validate and normalize path
-      const normalizedPath = FileProcessor.normalizePath(folderPath);
-
-      // Get all files in directory (recursive)
-      const files = await this.getAllFilesParallel(normalizedPath, concurrencyConfig);
-
-      // Filter supported files
-      const supportedFiles = files.filter((file: string) =>
-        this.fileProcessor.isFileSupported(file) && this.shouldIncludeFile(file, options)
-      );
-
-      if (supportedFiles.length === 0) {
-        log.warn('No supported files found to process', {
-          totalFiles: files.length,
-          folderPath,
-          options: Object.keys(options)
-        });
-        return {
-          totalFiles: files.length,
-          processedFiles: 0,
-          totalChunks: 0,
-          totalTokens: 0,
-          processingTime: Date.now() - startTime,
-          errors: ['No supported files found']
-        };
-      }
-
-      log.info('Starting parallel file processing', {
-        totalFiles: files.length,
-        supportedFiles: supportedFiles.length,
-        folderPath,
-        concurrencyConfig
-      });
-
-      // Configure concurrency limiter - default to CPU count
-      const maxConcurrency = concurrencyConfig.maxFileProcessingConcurrency || os.cpus().length;
-      const fileLimit = pLimit(maxConcurrency);
-
-      log.debug('File processing configuration', {
-        maxConcurrency,
-        cpus: os.cpus().length,
-        chunkSize: options.chunkSize,
-        overlap: options.overlap
-      });
-
-      // Create async tasks for each file
-      const fileTasks = supportedFiles.map((file: string, index: number) => {
-        return fileLimit(async () => {
-          try {
-            await this.processFile(file, options);
-            console.log(`[${index + 1}/${supportedFiles.length}] Processed: ${path.relative(normalizedPath, file)}`);
-            return { success: true, file };
-          } catch (fileError) {
-            const errorMsg = `Failed to process ${file}: ${fileError instanceof Error ? fileError.message : 'Unknown error'}`;
-            errors.push(errorMsg);
-            console.warn(errorMsg);
-            return { success: false, file, error: fileError };
-          }
-        });
-      });
-
-      // Execute all tasks in parallel with concurrency control
-      const results = await Promise.all(fileTasks);
-
-      // Count successful processes
-      processedFiles = results.filter((result: any) => result.success).length;
-
-      log.info('Parallel file processing complete', {
-        processed: processedFiles,
-        total: supportedFiles.length,
-        successRate: `${((processedFiles / supportedFiles.length) * 100).toFixed(1)}%`
-      });
-
-      // Calculate totals
-      const stats = await this.vectorIndex.getStatistics();
-      totalChunks = stats.totalChunks;
-      totalTokens = stats.totalTokens;
-
-      const processingTime = Date.now() - startTime;
-
-      const result: IndexingResult = {
-        totalFiles: files.length,
-        processedFiles,
-        totalChunks,
-        totalTokens,
-        processingTime,
-        errors
-      };
-
-      log.info('Indexing operation completed', {
-        processingTime: `${processingTime}ms`,
-        totalChunks,
-        totalTokens,
-        successRate: `${((processedFiles / supportedFiles.length) * 100).toFixed(1)}%`
-      });
-
-      return result;
-
-    } catch (error) {
-      const errorMessage = `Indexing failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      errors.push(errorMessage);
-      log.error('Indexing operation failed after file discovery', error as any, {
-        totalFiles: 0,
-        folderPath
-      });
-
-      return {
-        totalFiles: 0,
-        processedFiles: 0,
-        totalChunks: 0,
-        totalTokens: 0,
-        processingTime: Date.now() - startTime,
-        errors
-      };
+  private async ensureEmbeddingService(): Promise<EmbeddingService> {
+    if (!this.embeddingService) {
+      this.embeddingService = await EmbeddingService.getInstance(this.config.embeddingConfig);
     }
-  }
-
-  /**
-   * Process a single file: extract text, chunk it, embed it, store it
-   * @param filePath Absolute file path
-   * @param options Processing options
-   */
-  private async processFile(filePath: string, options: IndexOptions = {}): Promise<void> {
-    try {
-      // Extract text from file
-      const text = await this.fileProcessor.extractText(filePath);
-
-      if (text.trim().length === 0) {
-        throw new FileProcessingError(`File ${filePath} is empty or contains no processable content`);
-      }
-
-      // Chunk the text
-      const chunks = this.textChunker.chunkText(text, filePath, {
-        chunkSize: options.chunkSize || 1000,
-        overlap: options.overlap || 200,
-        method: 'fixed'
-      });
-
-      if (chunks.length === 0) {
-        throw new FileProcessingError(`No chunks created for file ${filePath}`);
-      }
-
-      // Generate embeddings for chunks
-      const embeddedChunks = await this.embeddingService.generateEmbeddings(chunks);
-
-      if (embeddedChunks.length === 0) {
-        throw new EmbeddingError(`Failed to generate embeddings for ${filePath}`);
-      }
-
-      // Store chunks in vector index
-      const storedCount = await this.vectorIndex.storeChunks(embeddedChunks);
-
-      if (storedCount === 0) {
-        throw new StorageError(`Failed to store chunks for ${filePath}`);
-      }
-
-    } catch (error: any) {
-      // Re-throw with context
-      if (error instanceof FileProcessingError ||
-          error instanceof EmbeddingError ||
-          error instanceof StorageError) {
-        throw error;
-      }
-      throw new StorageError(
-        `Processing failed for ${filePath}: ${error.message}`,
-        error
-      );
-    }
+    return this.embeddingService;
   }
 
   /**
@@ -249,8 +49,14 @@ export class SearchService {
     const startTime = Date.now();
 
     try {
+      log.debug('Executing semantic search query', {
+        query: query.substring(0, 50),
+        options
+      });
+
       // Generate embedding for the query
-      const queryEmbedding = await this.embeddingService.embedQuery(query);
+      const embeddingService = await this.ensureEmbeddingService();
+      const queryEmbedding = await embeddingService.embedQuery(query);
 
       // Search for similar chunks in the vector index
       const rawResults = await this.vectorIndex.searchSimilar(
@@ -286,6 +92,13 @@ export class SearchService {
         }
       }
 
+      log.debug('Search query completed', {
+        query: query.substring(0, 50),
+        totalResults,
+        searchTime,
+        topScore: optimizedResults[0]?.score || 0
+      });
+
       return {
         query,
         results: optimizedResults,
@@ -295,7 +108,12 @@ export class SearchService {
         nextSteps
       };
 
-    } catch (error) {
+    } catch (error: any) {
+      log.error('Search query failed', error, {
+        query: query.substring(0, 50),
+        options
+      });
+
       // Return empty result set on error
       return {
         query,
@@ -317,11 +135,18 @@ export class SearchService {
    */
   async getFileDetails(filePath: string, chunkIndex?: number, contextSize: number = 3): Promise<DocumentChunkOptimized[]> {
     try {
+      log.debug('Retrieving file details', {
+        filePath,
+        chunkIndex,
+        contextSize
+      });
+
       if (chunkIndex !== undefined) {
         // Get specific chunk with surrounding context
         const allChunks = await this.vectorIndex.getFileChunks(filePath);
         
         if (allChunks.length === 0) {
+          log.debug('No chunks found for file', { filePath });
           return [];
         }
 
@@ -329,6 +154,7 @@ export class SearchService {
         const targetChunkIndex = allChunks.findIndex(chunk => chunk.chunkIndex === chunkIndex);
         
         if (targetChunkIndex === -1) {
+          log.debug('Target chunk not found', { filePath, chunkIndex });
           return [];
         }
 
@@ -339,6 +165,14 @@ export class SearchService {
         // Get context chunks
         const contextChunks = allChunks.slice(startIndex, endIndex + 1);
         
+        log.debug('Retrieved file details with context', {
+          filePath,
+          chunkIndex,
+          totalChunks: allChunks.length,
+          returnedChunks: contextChunks.length,
+          contextWindow: [startIndex, endIndex]
+        });
+        
         // Remove embeddings and return optimized chunks
         return contextChunks.map(chunk => {
           const { embedding, ...chunkWithoutEmbedding } = chunk;
@@ -347,28 +181,20 @@ export class SearchService {
       } else {
         // Get all chunks for the file (without embeddings)
         const chunks = await this.vectorIndex.getFileChunks(filePath);
+        
+        log.debug('Retrieved all file details', {
+          filePath,
+          totalChunks: chunks.length
+        });
+        
         return chunks.map(chunk => {
           const { embedding, ...chunkWithoutEmbedding } = chunk;
           return chunkWithoutEmbedding as DocumentChunkOptimized;
         });
       }
-    } catch (error) {
-      console.error(`Failed to get file details for ${filePath}:`, error);
+    } catch (error: any) {
+      log.error('Failed to get file details', error, { filePath, chunkIndex });
       return [];
-    }
-  }
-
-  /**
-   * Delete file from index
-   * @param filePath Absolute file path
-   * @returns Number of deleted chunks
-   */
-  async deleteFile(filePath: string): Promise<number> {
-    try {
-      return await this.vectorIndex.deleteFile(filePath);
-    } catch (error) {
-      console.error(`Failed to delete file ${filePath}:`, error);
-      return 0;
     }
   }
 
@@ -378,9 +204,18 @@ export class SearchService {
    */
   async getStatistics() {
     try {
-      return await this.vectorIndex.getStatistics();
-    } catch (error) {
-      console.error('Failed to get statistics:', error);
+      log.debug('Retrieving index statistics');
+      const stats = await this.vectorIndex.getStatistics();
+      
+      log.debug('Index statistics retrieved', {
+        totalChunks: stats.totalChunks,
+        totalFiles: stats.totalFiles,
+        totalTokens: stats.totalTokens
+      });
+      
+      return stats;
+    } catch (error: any) {
+      log.error('Failed to get statistics', error);
       return {
         totalChunks: 0,
         totalFiles: 0,
@@ -393,154 +228,24 @@ export class SearchService {
   }
 
   /**
-   * Get all files in a directory with parallel processing
-   * @param dirPath Directory path to scan
-   * @param concurrencyConfig Concurrency configuration
-   * @returns Array of file paths
+   * Check if embedding service is ready
+   * @returns true if embedding service is initialized
    */
-  private async getAllFilesParallel(dirPath: string, concurrencyConfig: ConcurrencyConfig): Promise<string[]> {
-    const maxDirConcurrency = concurrencyConfig.maxDirectoryConcurrency || os.cpus().length * 2;
-    const dirLimit = pLimit(maxDirConcurrency);
-
-    console.log(`Scanning directory with concurrency limit of ${maxDirConcurrency}`);
-
-    return await this.scanDirectoryParallel(dirPath, dirLimit);
-  }
-
-  /**
-   * Scan directory recursively with parallel processing
-   * @param dirPath Directory to scan
-   * @param dirLimit Concurrency limiter
-   * @returns Array of file paths
-   */
-  private async scanDirectoryParallel(dirPath: string, dirLimit: any): Promise<string[]> {
-    const dirLimitFunction = dirLimit ? dirLimit : (fn: () => any) => fn();
-
+  async isReady(): Promise<boolean> {
     try {
-      const entries = await fs.readdir(dirPath, { withFileTypes: true });
-      const files: string[] = [];
-      const subDirectoryTasks: Promise<string[]>[] = [];
-
-      // Process immediate files synchronously
-      for (const entry of entries) {
-        const fullPath = path.join(dirPath, entry.name);
-
-        if (entry.isFile()) {
-          files.push(fullPath);
-        } else if (entry.isDirectory() && !this.shouldSkipDirectory(entry.name)) {
-          // Limit concurrency for subdirectories
-          subDirectoryTasks.push(
-            dirLimitFunction(async () => {
-              try {
-                return await this.scanDirectoryParallel(fullPath, dirLimit);
-              } catch (error) {
-                console.warn(`Skipping inaccessible directory: ${fullPath}`);
-                return []; // Return empty array for inaccessible directories
-              }
-            })
-          );
-        }
-      }
-
-      // Wait for all subdirectory scans to complete
-      const subDirectoryResults = await Promise.all(subDirectoryTasks);
-
-      // Flatten results and add to files array
-      for (const subFiles of subDirectoryResults) {
-        files.push(...subFiles);
-      }
-
-      return files;
-
-    } catch (error) {
-      console.error(`Failed to read directory ${dirPath}:`, error);
-      return [];
+      await this.ensureEmbeddingService();
+      return true;
+    } catch (error: any) {
+      log.error('SearchService not ready', error);
+      return false;
     }
   }
 
   /**
-   * Utility: Recursively get all files in a directory (sequential fallback)
-   * @param dirPath Directory path
-   * @returns Array of file paths
+   * Get search service configuration
    */
-  private async getAllFiles(dirPath: string): Promise<string[]> {
-    const { promises: fsPromises } = await import('fs');
-    const pathModule = await import('path');
-
-    try {
-      const entries = await fs.readdir(dirPath, { withFileTypes: true });
-      const files: string[] = [];
-
-      for (const entry of entries) {
-        const fullPath = pathModule.join(dirPath, entry.name);
-
-        if (entry.isDirectory()) {
-          // Skip common directories that shouldn't be indexed
-          if (!this.shouldSkipDirectory(entry.name)) {
-            const subFiles = await this.getAllFiles(fullPath);
-            files.push(...subFiles);
-          }
-        } else if (entry.isFile()) {
-          files.push(fullPath);
-        }
-      }
-
-      return files;
-
-    } catch (error) {
-      console.error(`Failed to read directory ${dirPath}:`, error);
-      return [];
-    }
-  }
-
-  /**
-   * Check if file should be included based on options
-   * @param filePath File path
-   * @param options Index options
-   * @returns true if should include
-   */
-  private shouldIncludeFile(filePath: string, options: IndexOptions): boolean {
-    // Check file extensions
-    if (options.fileTypes && options.fileTypes.length > 0) {
-      const ext = path.basename(filePath).split('.').pop()?.toLowerCase();
-      if (ext && !options.fileTypes.includes(`.${ext}`)) {
-        return false;
-      }
-    }
-
-    // Check patterns
-    if (options.excludePatterns) {
-      for (const pattern of options.excludePatterns) {
-        if (filePath.includes(pattern)) {
-          return false;
-        }
-      }
-    }
-
-    return true;
-  }
-
-  /**
-   * Check if directory should be skipped
-   * @param dirName Directory name
-   * @returns true if should skip
-   */
-  private shouldSkipDirectory(dirName: string): boolean {
-    const skipDirs = [
-      'node_modules',
-      '.git',
-      '.vscode',
-      '.idea',
-      'dist',
-      'build',
-      'tmp',
-      '__pycache__',
-      '.next',
-      '.venv',
-      'venv'
-    ];
-
-    return skipDirs.includes(dirName) || dirName.startsWith('.');
+  getConfig(): SearchServiceConfig {
+    return this.config;
   }
 
   /**
@@ -548,10 +253,18 @@ export class SearchService {
    */
   dispose(): void {
     try {
+      log.debug('Disposing SearchService resources');
+      
       this.vectorIndex.close();
-      this.embeddingService.dispose();
-    } catch (error) {
-      console.error('Error disposing resources:', error);
+      
+      if (this.embeddingService) {
+        // Note: Don't dispose the singleton EmbeddingService here
+        this.embeddingService = null;
+      }
+      
+      log.info('SearchService disposed');
+    } catch (error: any) {
+      log.error('Error disposing SearchService resources', error);
     }
   }
 }

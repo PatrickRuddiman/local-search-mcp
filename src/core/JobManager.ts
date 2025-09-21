@@ -1,8 +1,9 @@
 import { log } from './Logger.js';
+import { ProgressManager } from './ProgressManager.js';
 
 export interface Job {
   id: string;
-  type: 'fetch_repo' | 'fetch_file';
+  type: 'fetch_repo' | 'fetch_file' | 'index_directory';
   status: 'running' | 'completed' | 'failed';
   progress: number; // 0-100
   startTime: Date;
@@ -24,9 +25,11 @@ export interface JobProgress {
 export class JobManager {
   private jobs: Map<string, Job> = new Map();
   private statusCache: Map<string, Job> = new Map();
+  private progressManager: ProgressManager;
   private static instance: JobManager;
 
   private constructor() {
+    this.progressManager = ProgressManager.getInstance();
     log.debug('JobManager initialized');
   }
 
@@ -57,9 +60,6 @@ export class JobManager {
     return id;
   }
 
-  /**
-   * Update job progress
-   */
   updateProgress(id: string, progress: number, message?: string, metadata?: any): void {
     const job = this.jobs.get(id);
     if (!job) {
@@ -75,12 +75,12 @@ export class JobManager {
     // Update cache for fast retrieval during heavy operations
     this.statusCache.set(id, { ...job });
 
+    // Emit progress event (non-blocking)
+    this.progressManager.updateProgress(id, progress, message, metadata);
+
     log.debug(`Job progress updated: ${id}`, { progress, message });
   }
 
-  /**
-   * Complete a job successfully
-   */
   completeJob(id: string, result: any): void {
     const job = this.jobs.get(id);
     if (!job) {
@@ -96,15 +96,15 @@ export class JobManager {
     // Update cache
     this.statusCache.set(id, { ...job });
 
-    log.info(`Job completed: ${id}`, { 
+    // Emit completion event (non-blocking)
+    this.progressManager.completeJob(id, result);
+
+    log.info(`Job completed: ${id}`, {
       duration: job.endTime.getTime() - job.startTime.getTime(),
       resultKeys: typeof result === 'object' ? Object.keys(result) : 'primitive'
     });
   }
 
-  /**
-   * Fail a job
-   */
   failJob(id: string, error: string): void {
     const job = this.jobs.get(id);
     if (!job) {
@@ -119,20 +119,42 @@ export class JobManager {
     // Update cache
     this.statusCache.set(id, { ...job });
 
+    // Emit failure event (non-blocking)
+    this.progressManager.failJob(id, error);
+
     log.error(`Job failed: ${id}`, new Error(error));
   }
 
   /**
-   * Get job status (with fast cache fallback during heavy operations)
+   * Get job status (async with immediate response to prevent blocking)
+   */
+  async getJobAsync(id: string): Promise<Job | undefined> {
+    return new Promise(resolve => {
+      setTimeout(() => {
+        // First try cache for faster response during heavy processing
+        const cached = this.statusCache.get(id);
+        if (cached) {
+          resolve(cached);
+          return;
+        }
+        
+        // Fallback to main job store
+        resolve(this.jobs.get(id));
+      }, 0);
+    });
+  }
+
+  /**
+   * Get job status (synchronous fallback - kept for backward compatibility)
    */
   getJob(id: string): Job | undefined {
-    // First try cache for faster response during heavy processing
+    // Use cache for immediate response to prevent blocking
     const cached = this.statusCache.get(id);
     if (cached) {
       return cached;
     }
     
-    // Fallback to main job store
+    // Quick lookup without iteration
     return this.jobs.get(id);
   }
 
@@ -144,14 +166,36 @@ export class JobManager {
   }
 
   /**
-   * Get all jobs
+   * Get all jobs (async to prevent blocking)
+   */
+  async getAllJobsAsync(): Promise<Job[]> {
+    return new Promise(resolve => {
+      setTimeout(() => {
+        resolve(Array.from(this.jobs.values()));
+      }, 0);
+    });
+  }
+
+  /**
+   * Get all jobs (synchronous fallback)
    */
   getAllJobs(): Job[] {
     return Array.from(this.jobs.values());
   }
 
   /**
-   * Get active (running) jobs
+   * Get active (running) jobs (async to prevent blocking)
+   */
+  async getActiveJobsAsync(): Promise<Job[]> {
+    return new Promise(resolve => {
+      setTimeout(() => {
+        resolve(Array.from(this.jobs.values()).filter(job => job.status === 'running'));
+      }, 0);
+    });
+  }
+
+  /**
+   * Get active (running) jobs (synchronous fallback)
    */
   getActiveJobs(): Job[] {
     return Array.from(this.jobs.values()).filter(job => job.status === 'running');

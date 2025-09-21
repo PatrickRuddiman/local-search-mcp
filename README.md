@@ -17,6 +17,8 @@ A high-performance Model Context Protocol (MCP) server that provides semantic do
 - ⚡ **Parallel Processing**: p-limit concurrency control for multi-core performance (5-10x speedup)
 - 💾 **Persistent Storage**: SQLite-based vector storage with optimized indexing
 - 🔄 **Automatic Updates**: Background file change detection and re-indexing
+- 🎯 **Async Job Management**: Long-running operations with progress tracking and status monitoring
+- 📊 **Comprehensive Logging**: Performance timing, error tracking, and detailed system monitoring
 - 🏗️ **Cross-Platform**: Works seamlessly on Windows, macOS, and Linux
 
 ## 📋 Table of Contents
@@ -112,11 +114,18 @@ The server automatically detects and uses GPU acceleration when available for em
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
+| `MCP_DATA_FOLDER` | Custom data folder path | Platform-specific | `/home/user/data` |
 | `MCP_DOCS_FOLDER` | Custom docs folder path | Platform-specific | `/home/user/docs` |
 | `NODE_ENV` | Environment mode | `development` | `production` |
 
-### Default Docs Folder Locations
+### Default Folder Locations
 
+#### Data Folder (`MCP_DATA_FOLDER`)
+- **Linux**: `~/.local/share/local-search-mcp`
+- **macOS**: `~/Library/Application Support/local-search-mcp`
+- **Windows**: `%LOCALAPPDATA%/local-search-mcp`
+
+#### Docs Folder (`MCP_DOCS_FOLDER`)
 - **Linux**: `~/.local/share/local-search-mcp/docs`
 - **macOS**: `~/Library/Application Support/local-search-mcp/docs`
 - **Windows**: `%LOCALAPPDATA%/local-search-mcp/docs`
@@ -134,7 +143,9 @@ The server automatically detects and uses GPU acceleration when available for em
         "/absolute/path/to/local-search-mcp/build/index.js"
       ],
       "env": {
-        "MCP_DOCS_FOLDER": "/custom/path/to/docs"
+        "MCP_DATA_FOLDER": "/custom/path/to/data",
+        "MCP_DOCS_FOLDER": "/custom/path/to/docs",
+        "NODE_ENV": "production"
       }
     }
   }
@@ -274,25 +285,9 @@ Download and index a file from a URL.
 
 **Returns:** Download status and indexing results.
 
-### Async Job Management Tools
+### Job Management Tools
 
-The server now supports asynchronous operations with job tracking to prevent timeouts during heavy processing.
-
-#### `start_fetch_repo`
-
-Start an async repository fetch operation and return immediately with a job ID.
-
-**Parameters:** Same as `fetch_repo`
-
-**Returns:** Job ID for polling completion
-
-#### `start_fetch_file`
-
-Start an async file download operation and return immediately with a job ID.
-
-**Parameters:** Same as `fetch_file`
-
-**Returns:** Job ID for polling completion
+The server supports asynchronous operations for all fetch operations, with job tracking to prevent timeouts during heavy processing.
 
 #### `get_job_status`
 
@@ -301,7 +296,7 @@ Poll the status of an async job by ID.
 **Parameters:**
 ```typescript
 {
-  jobId: string              // Job ID from start_fetch_* operations
+  jobId: string              // Job ID from fetch_repo/fetch_file operations
 }
 ```
 
@@ -316,12 +311,12 @@ List all currently running jobs with progress information.
 **Async Workflow Example:**
 ```typescript
 // 1. Start async repository fetch
-const repoJob = await start_fetch_repo({
+const repoJob = await fetch_repo({
   repoUrl: "https://github.com/large/repository"
 });
 
 // 2. Start async file download
-const fileJob = await start_fetch_file({
+const fileJob = await fetch_file({
   url: "https://example.com/large-file.json",
   filename: "data.json"
 });
@@ -423,8 +418,12 @@ local-search-mcp/
 ├── src/                          # Source code
 │   ├── core/                     # Core services
 │   │   ├── EmbeddingService.ts   # Transformer embeddings
+│   │   ├── FileDownloadService.ts # URL file downloading
 │   │   ├── FileProcessor.ts      # Text extraction
 │   │   ├── FileWatcher.ts        # FS monitoring
+│   │   ├── JobManager.ts         # Async job management
+│   │   ├── Logger.ts             # Performance logging
+│   │   ├── PathUtils.ts          # Cross-platform paths
 │   │   ├── RepoService.ts        # GitHub processing
 │   │   ├── SearchService.ts      # Search orchestration
 │   │   ├── TextChunker.ts        # Document chunking

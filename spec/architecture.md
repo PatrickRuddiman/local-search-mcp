@@ -1,120 +1,135 @@
 # Architecture Overview
 
+## Simple Two-Part Architecture
+
+### Frontend: MCP Server (Main Thread)
+- **Responsibility**: Handle MCP tool requests only
+- **Instant Tools**: search_documents, get_file_details, remove_file
+- **Async Tools**: fetch_repo, fetch_file (return job IDs immediately)
+- **Job Management**: get_job_status, list_active_jobs
+
+### Backend: Async Processor
+- **Responsibility**: Background processing pipelines
+- **Concurrency**: Multiple fetch requests can run simultaneously
+- **Progress Tracking**: Real-time accurate progress reporting
+- **Simple Design**: No complex threading, just async functions
+
 ## System Components
 
-### 1. File Processor
-- **Responsibility**: Extract text from various file formats
-- **Input**: File paths
-- **Output**: Raw text content
-- **Dependencies**: File system access, format parsers
-
-### 2. Text Chunker
-- **Responsibility**: Divide documents into semantically cohesive chunks
-- **Strategies**: 
-  - Fixed-size with overlap
-  - Sentence-based splitting
-  - Paragraph awareness
-- **Configuration**: Chunk size, overlap percentage
-
-### 3. Embedding Service
-- **Responsibility**: Convert text chunks to vector representations
-- **Engine**: @xenova/transformers
+### 1. SearchService (Main Thread)
+- **Responsibility**: Fast query operations only
 - **Features**: 
-  - GPU acceleration support
-  - Multiple model options
-  - Batch processing for efficiency
+  - Semantic similarity search
+  - File chunk retrieval
+  - Database lookups
+- **Performance**: Instant response times
 
-### 4. Vector Index
-- **Responsibility**: Store and search vector embeddings
-- **Implementation**: In-memory array with cosine similarity
-- **Future**: Support for external databases (Pinecone, Weaviate)
+### 2. BackgroundProcessor
+- **Responsibility**: Async file processing pipelines
+- **Operations**: 
+  - Repository download and processing
+  - File download and processing
+  - File deletion from index
+- **Progress**: Real-time progress callbacks
 
-### 5. Search Engine
-- **Responsibility**: Handle query processing and result ranking
+### 3. JobManager
+- **Responsibility**: Track background job progress
 - **Features**:
-  - Natural language query support
-  - Relevance scoring
-  - Pagination and filtering
+  - Accurate progress calculation
+  - Job status tracking
+  - Concurrent job management
 
-### 6. MCP Interface
-- **Responsibility**: Expose functionality as MCP tools and resources
-- **Capabilities**: Tools for indexing, searching, configuration
-- **Transport**: Stdio for MCP protocol compliance
+### 4. Core Services (Shared)
+- **FileProcessor**: Text extraction from various formats
+- **TextChunker**: Document segmentation with overlap
+- **EmbeddingService**: Vector generation using transformers
+- **VectorIndex**: SQLite-vec storage and similarity search
+
+## Processing Pipeline
+
+### Repository Fetch Pipeline
+```
+fetch_repo request → return jobId immediately
+                  ↓
+Background: download(0-30%) → chunk(30-50%) → embed(50-90%) → store(90-100%)
+```
+
+### File Fetch Pipeline  
+```
+fetch_file request → return jobId immediately
+                  ↓
+Background: download(0-40%) → chunk(40-60%) → embed(60-95%) → store(95-100%)
+```
+
+### Search Pipeline
+```
+search_documents → query embedding → similarity search → return results
+(instant response, ~50ms)
+```
 
 ## Data Flow
 
-```mermaid
-graph TD
-    A[User Query] --> B[MCP Server]
-    B --> C{Index Built?}
-    C -->|No| D[index_files Tool]
-    C -->|Yes| E[search_documents Tool]
-    D --> F[File Scanner]
-    F --> G[Text Extractor]
-    G --> H[Text Chunker]
-    H --> I[Embedding Generator]
-    I --> J[Vector Storage]
-    E --> K[Query Embedding]
-    K --> L[Similarity Search]
-    L --> M[Result Ranker]
-    M --> B
+```
+MCP Request → Frontend (instant response) → Background Processor (async)
+                                        ↓
+JobManager (progress tracking) ← Pipeline Steps (real progress)
 ```
 
-## Class Diagram
+## Concurrency Model
 
-```
-MCP Server
-├── FileProcessor
-├── TextChunker
-├── EmbeddingService
-├── VectorIndex
-├── SearchService
-└── MCP Tools
-    ├── index_files
-    ├── search_documents
-    ├── get_file_details
-    └── update_index
-```
+**Main Thread:**
+- MCP server handling requests
+- SearchService for instant operations
+- JobManager for progress queries
 
-## Performance Considerations
+**Background Tasks:**
+- Multiple async processing pipelines running concurrently
+- Each pipeline: download → chunk → embed → store
+- Real progress tracking throughout each step
 
-### Memory Management
-- Chunk streaming for large documents
-- Lazy loading of embeddings
-- Garbage collection monitoring
+## Storage
 
-### GPU Optimization
-- Batch processing of embeddings
-- Model caching
-- Fallback to CPU if GPU unavailable
+### SQLite Vector Database
+- **Tables**: documents (metadata), vec_chunks (vectors + content)
+- **Technology**: sqlite-vec for native vector similarity search
+- **Performance**: Optimized for fast queries and batch inserts
 
-### Caching Strategy
-- Index persistence to disk
-- Updated file tracking
-- Query result caching
-- LRU cache for frequent queries
+### File System
+- **Repository files**: `~/.local/share/local-search-mcp/docs/repositories/`
+- **Downloaded files**: `~/.local/share/local-search-mcp/docs/fetched/`
+- **Database**: `~/.local/share/local-search-mcp/data/`
 
-## Extensibility
+## Performance Characteristics
 
-### Plugin Architecture
-- File format parsers as plugins
-- Chunking strategies as modules
-- Embedding model providers
-- Storage backend options
+### Response Times
+- **Instant tools**: <100ms (search, file details, remove)
+- **Async tools**: <5ms (immediate job ID return)
+- **Background processing**: Real progress tracking
 
-### Configuration
-- JSON-based config files
-- Environment variable support
-- Runtime parameter adjustment
+### Memory Usage
+- **Main thread**: Minimal (no large data structures)
+- **Background tasks**: Per-pipeline memory usage
+- **Embeddings**: Singleton service with model caching
 
-## Error Handling
+### Scalability
+- **Concurrent requests**: Multiple background pipelines
+- **Large files**: Streaming processing with progress callbacks
+- **Database**: SQLite-vec optimized for vector operations
 
-### Graceful Degradation
-- CPU fallback for GPU operations
-- Partial indexing for failed files
-- Warning logs vs errors
+## Simplicity Features
 
-### Recovery Mechanisms
-- Index rebuild on corruption
-- Automatic retry for transient failures
-- Progressive indexing for interrupted operations
+### No Complex Threading
+- No worker pools or thread managers
+- Simple async functions with callbacks
+- Standard JavaScript concurrency model
+
+### Real Progress Tracking
+- Download progress from HTTP content-length
+- Chunking progress from actual chunk counts
+- Embedding progress from batch completion
+- Storage progress from database operations
+
+### Error Handling
+- Graceful failure with detailed error messages
+- Job-level error tracking and reporting
+- No cascading failures between pipelines

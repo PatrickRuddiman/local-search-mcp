@@ -9,12 +9,16 @@ export interface EmbeddingConfig {
 }
 
 export class EmbeddingService {
-  private model?: use.UniversalSentenceEncoder;
+  private static instance?: EmbeddingService;
+  private static modelPromise?: Promise<use.UniversalSentenceEncoder>;
+  private static model?: use.UniversalSentenceEncoder;
+  private static isLoading = false;
+  
   private config: Required<EmbeddingConfig>;
   private initialized = false;
 
-  constructor(config: EmbeddingConfig = {}) {
-    log.debug('Initializing EmbeddingService', { config });
+  private constructor(config: EmbeddingConfig = {}) {
+    log.debug('Initializing EmbeddingService singleton', { config });
 
     this.config = {
       modelName: 'universal-sentence-encoder', // Universal sentence encoder
@@ -22,43 +26,91 @@ export class EmbeddingService {
       ...config
     };
 
-    log.debug('EmbeddingService initialized', {
+    log.debug('EmbeddingService singleton initialized', {
       modelName: this.config.modelName,
       batchSize: this.config.batchSize
     });
   }
 
   /**
-   * Initialize the embedding model (Universal Sentence Encoder)
+   * Get singleton instance with centralized model loading
    */
-  async initialize(): Promise<void> {
-    const timer = log.time('embedding-model-init');
-    log.info('Starting Universal Sentence Encoder model loading', {
+  static async getInstance(config: EmbeddingConfig = {}): Promise<EmbeddingService> {
+    if (!EmbeddingService.instance) {
+      EmbeddingService.instance = new EmbeddingService(config);
+    }
+    
+    // Ensure model is loaded (singleton pattern prevents race conditions)
+    await EmbeddingService.instance.ensureModelLoaded();
+    
+    return EmbeddingService.instance;
+  }
+
+  /**
+   * Centralized model loading - prevents multiple workers competing for model download
+   */
+  private async ensureModelLoaded(): Promise<void> {
+    if (EmbeddingService.model) {
+      this.initialized = true;
+      return;
+    }
+
+    if (EmbeddingService.isLoading && EmbeddingService.modelPromise) {
+      // Another thread is loading, wait for it
+      log.debug('Waiting for model loading to complete in another thread');
+      EmbeddingService.model = await EmbeddingService.modelPromise;
+      this.initialized = true;
+      return;
+    }
+
+    // This thread takes responsibility for loading
+    EmbeddingService.isLoading = true;
+    EmbeddingService.modelPromise = this.loadModelSingleton();
+    
+    try {
+      EmbeddingService.model = await EmbeddingService.modelPromise;
+      this.initialized = true;
+      log.info('Singleton model loading completed successfully');
+    } catch (error) {
+      EmbeddingService.isLoading = false;
+      EmbeddingService.modelPromise = undefined;
+      throw error;
+    } finally {
+      EmbeddingService.isLoading = false;
+    }
+  }
+
+  /**
+   * Singleton model loading implementation
+   */
+  private async loadModelSingleton(): Promise<use.UniversalSentenceEncoder> {
+    const timer = log.time('singleton-embedding-model-init');
+    log.info('Starting singleton Universal Sentence Encoder model loading', {
       modelName: this.config.modelName,
       tfBackend: tf.getBackend()
     });
 
     try {
-      this.model = await use.load();
-      this.initialized = true;
+      const model = await use.load();
 
-      const modelInfo = this.getModelInfo();
-      log.info('Universal Sentence Encoder loaded successfully', {
-        dimensions: modelInfo.dimensions,
-        gpuEnabled: modelInfo.gpuEnabled
+      log.info('Singleton Universal Sentence Encoder loaded successfully', {
+        dimensions: 512,
+        gpuEnabled: tf.getBackend() === 'tensorflow'
       });
 
       timer();
+      return model;
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
-      log.error('Failed to load Universal Sentence Encoder model', error);
+      log.error('Failed to load singleton Universal Sentence Encoder model', error);
 
       throw new EmbeddingError(
-        `Failed to initialize Universal Sentence Encoder: ${message}`,
+        `Failed to initialize singleton Universal Sentence Encoder: ${message}`,
         error instanceof Error ? error : undefined
       );
     }
   }
+
 
   /**
    * Generate embeddings for text chunks
@@ -72,11 +124,9 @@ export class EmbeddingService {
       batchSize: this.config.batchSize
     });
 
-    if (!this.initialized || !this.model) {
-      await this.initialize();
-    }
+    await this.ensureModelLoaded();
 
-    if (!this.model) {
+    if (!EmbeddingService.model) {
       throw new EmbeddingError('Universal Sentence Encoder not initialized');
     }
 
@@ -122,7 +172,7 @@ export class EmbeddingService {
    * Process a single batch of chunks using Universal Sentence Encoder
    */
   private async processBatch(chunks: DocumentChunk[]): Promise<DocumentChunk[]> {
-    if (!this.model) {
+    if (!EmbeddingService.model) {
       throw new EmbeddingError('Model not initialized');
     }
 
@@ -130,7 +180,7 @@ export class EmbeddingService {
 
     try {
       // Generate embeddings using Universal Sentence Encoder
-      const embeddings = await this.model.embed(texts);
+      const embeddings = await EmbeddingService.model.embed(texts);
 
       // Extract embedding vectors from TensorFlow tensor
       const embeddingArray = await embeddings.array();
@@ -171,12 +221,12 @@ export class EmbeddingService {
    * Generate embedding for single text using Universal Sentence Encoder
    */
   private async generateSingleEmbedding(text: string): Promise<number[]> {
-    if (!this.model) {
+    if (!EmbeddingService.model) {
       throw new EmbeddingError('Model not initialized');
     }
 
     const preparedText = this.prepareText(text);
-    const embedding = await this.model.embed([preparedText]);
+    const embedding = await EmbeddingService.model.embed([preparedText]);
     const embeddingArray = await embedding.array();
 
     return Array.from(embeddingArray[0] as number[]);
@@ -206,11 +256,9 @@ export class EmbeddingService {
    * @returns Query embedding vector
    */
   async embedQuery(query: string): Promise<number[]> {
-    if (!this.initialized || !this.model) {
-      await this.initialize();
-    }
+    await this.ensureModelLoaded();
 
-    if (!this.model) {
+    if (!EmbeddingService.model) {
       throw new EmbeddingError('Model not initialized');
     }
 
@@ -281,10 +329,10 @@ export class EmbeddingService {
   dispose(): void {
     log.debug('Disposing EmbeddingService resources');
 
-    // Clean up TensorFlow resources
-    if (this.model) {
+    // Clean up TensorFlow resources (static model shared across instances)
+    if (EmbeddingService.model) {
       // Universal Sentence Encoder cleanup
-      this.model = undefined;
+      EmbeddingService.model = undefined;
     }
 
     // Dispose of any remaining Tensors

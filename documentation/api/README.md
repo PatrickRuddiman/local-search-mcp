@@ -110,7 +110,7 @@ Retrieve detailed content and chunk information for specific indexed files.
 
 ### `fetch_repo`
 
-Clone and process a GitHub repository, converting it to searchable markdown documentation.
+Start an async repository fetch operation. Returns immediately with a job ID for polling completion.
 
 **Endpoint:** `fetch_repo`
 
@@ -134,11 +134,11 @@ Clone and process a GitHub repository, converting it to searchable markdown docu
   "content": [
     {
       "type": "text",
-      "text": "Successfully processed repository: owner/repo\\nFiles processed: N\\nOutput directory: /path/to/output"
+      "text": "Started async repository fetch: owner/repo\\nJob ID: abc123\\nUse get_job_status to poll for completion."
     },
     {
       "type": "text",
-      "text": "[JSON processing statistics]"
+      "text": "{\"jobId\": \"abc123\", \"repoName\": \"owner/repo\"}"
     }
   ]
 }
@@ -148,7 +148,7 @@ Clone and process a GitHub repository, converting it to searchable markdown docu
 
 ### `fetch_file`
 
-Download a single file from a URL and automatically index it for search.
+Start an async file download operation. Returns immediately with a job ID for polling completion.
 
 **Endpoint:** `fetch_file`
 
@@ -169,11 +169,71 @@ Download a single file from a URL and automatically index it for search.
   "content": [
     {
       "type": "text",
-      "text": "Successfully downloaded file: /path/to/file.txt\\nSize: 45.2KB"
+      "text": "Started async file download: filename.txt\\nJob ID: def456\\nUse get_job_status to poll for completion."
     },
     {
       "type": "text",
-      "text": "[JSON download and indexing results]"
+      "text": "{\"jobId\": \"def456\", \"filename\": \"filename.txt\"}"
+    }
+  ]
+}
+```
+
+---
+
+### `get_job_status`
+
+Poll the status of an async job by ID to check progress and retrieve results when complete.
+
+**Endpoint:** `get_job_status`
+
+#### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `jobId` | `string` | ✅ | - | Job ID returned from start_fetch_* operations |
+
+#### Response Schema
+
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Job Status: abc123\\nType: fetch_repo\\nStatus: completed\\nProgress: 100%\\nDuration: 45.2s\\nJob completed successfully!"
+    },
+    {
+      "type": "text",
+      "text": "[JSON job object with full status and results]"
+    }
+  ]
+}
+```
+
+---
+
+### `list_active_jobs`
+
+List all currently active (running) jobs with their status and progress information.
+
+**Endpoint:** `list_active_jobs`
+
+#### Parameters
+
+No parameters required.
+
+#### Response Schema
+
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Active Jobs (2):\\nabc123: fetch_repo (75%, 30.1s)\\ndef456: fetch_file (50%, 15.3s)\\n\\nStatistics:\\nTotal: 25\\nRunning: 2\\nCompleted: 20\\nFailed: 3\\nAvg Duration: 22.5s"
+    },
+    {
+      "type": "text",
+      "text": "[JSON array of active jobs]"
     }
   ]
 }
@@ -223,6 +283,25 @@ export interface VectorIndexStatistics {
   embeddingModel: string;       // Model name used
   lastUpdated: Date;            // Last update timestamp
   dbSize: number;               // Database file size in bytes
+}
+
+export interface Job {
+  id: string;                   // Unique job identifier
+  type: 'fetch_repo' | 'fetch_file';  // Job type
+  status: 'running' | 'completed' | 'failed';  // Current status
+  progress: number;             // Progress percentage (0-100)
+  startTime: Date;              // Job start timestamp
+  endTime?: Date;               // Job completion timestamp
+  error?: string;               // Error message if failed
+  result?: any;                 // Job result when completed
+}
+
+export interface JobStatistics {
+  total: number;                // Total jobs created
+  running: number;              // Currently running jobs
+  completed: number;            // Successfully completed jobs
+  failed: number;               // Failed jobs
+  averageDuration: number;      // Average completion time in ms
 }
 ```
 
@@ -376,6 +455,45 @@ await get_file_details({
   chunkIndex: 2,  // Specific chunk
   contextLines: 5  // More context
 });
+```
+
+### Async Job Management Workflow
+
+```typescript
+// 1. Start async repository fetch
+const repoJob = await fetch_repo({
+  repoUrl: "https://github.com/large/repository",
+  options: {
+    maxFiles: 2000,
+    includePatterns: ["*.md", "*.txt", "*.json"]
+  }
+});
+
+// 2. Start async file download
+const fileJob = await fetch_file({
+  url: "https://example.com/large-file.json",
+  filename: "data.json",
+  options: { maxFileSizeMB: 50 }
+});
+
+// 3. Poll for completion
+let repoStatus = await get_job_status({ jobId: repoJob.jobId });
+while (repoStatus.status === 'running') {
+  console.log(`Repository fetch: ${repoStatus.progress}%`);
+  await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5s
+  repoStatus = await get_job_status({ jobId: repoJob.jobId });
+}
+
+// 4. Check all active jobs
+const activeJobs = await list_active_jobs();
+console.log(`Active jobs: ${activeJobs.length}`);
+
+// 5. Handle completion
+if (repoStatus.status === 'completed') {
+  console.log(`Repository processed: ${repoStatus.result.filesProcessed} files`);
+} else {
+  console.error(`Repository fetch failed: ${repoStatus.error}`);
+}
 ```
 
 ---

@@ -6,7 +6,7 @@ This document describes the system architecture, design patterns, and component 
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                          LOCAL SEARCH MCP SERVER                                │
+│                      LOCAL SEARCH MCP SERVER - EVENT LOOP ARCHITECTURE         │
 │                                                                                │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐ │
 │  │   MCP Layer     │  │   Service       │  │   Persistence   │  │   External   │ │
@@ -18,7 +18,7 @@ This document describes the system architecture, design patterns, and component 
 │  │                 │  │  ┌────────────┐ │  │                │  │  ┌─────────┐ │ │
 │  │  • Tool Schema  │  │  │ Repo       │ │  │  • SQLite     │  │  │ File     │ │ │
 │  │  • Request/Resp │  │  │ Service    │◄►│  │  • Embeddings│  │  │ URLs     │ │ │
-│  |  • Error Handling│  │  └────────────┘ │  │  • Chunks     │  │  └─────────┘ │ │
+│  │  • Error Handling│  │  └────────────┘ │  │  • Chunks     │  │  └─────────┘ │ │
 │  └─────────────────┘  │  ┌────────────┐ │  └────────────────┘  └─────────────┘ │
 │                       │  │ File        │ │                                       │
 │                       │  │ Download    │ │                                       │
@@ -27,18 +27,26 @@ This document describes the system architecture, design patterns, and component 
 │                       └─────────────────┘                                       │
 │                                                                                │
 │  ┌─────────────────────────────────────────────────────────────────────────────┐ │
-│  │                          CORE PROCESSING ENGINE                            │ │
+│  │                      EVENT LOOP PROCESSING ENGINE                           │ │
 │  │                                                                            │ │
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │ │
 │  │  │ File        │  │ Text        │  │ Embedding   │  │ Vector       │         │ │
 │  │  │ Processor   │─►│ Chunker     │─►│ Service     │─►│ Storage      │         │ │
-│  │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘         │ │
-│  │        │                 │                 │                 │                │ │
-│  │   Text Extract  Chunking  Tokenize  Embedding Gen  Similarity  Storage       │ │
-│  │      .txt,.md     Rules    & Clean      Vectors     Search    Operations     │ │
-│  │     .json,.js    Engine    Process    Processing    Engine    (CRUD)         │ │
-│  │                                                                                │
+│  │  │ (Async I/O) │  │ (Yielding)  │  │ (Batched)   │  │ (ACID)       │         │ │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘         │ │
+│        │                EVENT LOOP      EVENT LOOP      TRANSACTION            │ │
+│   Text Extract  Yielding  Tokenize  Batched Yield  Similarity  Storage         │ │
+│      .txt,.md    Every 1K     & Clean   Every 10      Search    Operations       │ │
+│     .json,.js   Chunks        Process  Batches       Engine    (CRUD)           │ │
+│                                                                                │
+│  ┌─────────────────────────────────────────────────────────────────────────────┐ │
+│  │                          CONCURRENCY MODEL                                  │ │
+│  │                                                                            │ │
+│  │  • NO THREADING - Simple async functions with setImmediate() yielding     │ │
+│  │  • MULTIPLE JOBS - Concurrent background processing                         │ │
+│  │  • MCP RESPONSIVE - Never blocks main thread despite long operations       │ │
 │  └─────────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 

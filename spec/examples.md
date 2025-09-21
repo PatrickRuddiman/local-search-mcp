@@ -18,7 +18,7 @@ npm run build
   "mcpServers": {
     "local-search": {
       "command": "node",
-      "args": ["D:/repos/local-search-mcp/build/index.js"],
+      "args": ["/absolute/path/to/local-search-mcp/build/index.js"],
       "env": {}
     }
   }
@@ -27,40 +27,29 @@ npm run build
 
 ## Basic Workflow
 
-### 1. Index a Folder (Local Files)
-```typescript
-// Using the MCP tool
-await index_files({
-  folderPath: "C:/Users/user/Documents/my-docs",
-  options: {
-    chunkSize: 1000,
-    overlap: 200,
-    fileTypes: [".md", ".txt"]
-  }
-});
-```
-
-### 1b. Fetch and Index a Repository
+### 1. Fetch and Index a Repository
 ```typescript
 // Fetch documentation from a GitHub repository
-await fetch_repo({
-  repoUrl: "https://github.com/microsoft/vscode-docs",
-  options: {
-    maxFiles: 1000,
-    includePatterns: ["*.md", "*.txt", "*.rst"]
-  }
+const result = await fetch_repo({
+  repoUrl: "https://github.com/microsoft/vscode-docs"
 });
+// Returns: { jobId: "job_abc123" }
+
+// Check progress
+await get_job_status({ jobId: "job_abc123" });
+// Returns: { progress: 45, currentStep: "embedding", status: "running" }
 ```
 
-### 1c. Fetch and Index Individual Files
+### 2. Fetch and Index Individual Files
 ```typescript
-// Fetch a specific documentation file from raw GitHub URL
-await fetch_file({
+// Fetch a specific documentation file
+const result = await fetch_file({
   url: "https://raw.githubusercontent.com/microsoft/vscode-docs/main/docs/api/vscode-api.md",
   filename: "vscode-api.md"
 });
+// Returns: { jobId: "job_def456" }
 
-// Fetch to custom folder with size limit
+// Fetch with custom options
 await fetch_file({
   url: "https://example.com/api-docs.json",
   filename: "api-reference.json",
@@ -72,26 +61,71 @@ await fetch_file({
 });
 ```
 
-### 2. Search Documents
+### 3. Search Documents
 ```typescript
-// Query the indexed content
-await search_documents({
+// Query the indexed content (instant response)
+const results = await search_documents({
   query: "how does the authentication work?",
   options: {
     limit: 5,
-    minScore: 0.8
+    minScore: 0.7
   }
 });
+// Returns: { results: [...], totalResults: 12, searchTime: 47 }
 ```
 
-### 3. Retrieve Specific Details
+### 4. Get File Details
 ```typescript
-// Get detailed chunk context
-await get_file_details({
+// Get detailed chunk context (instant response)
+const chunks = await get_file_details({
   filePath: "/docs/auth.md",
   chunkIndex: 2,
-  contextLines: 3
+  contextSize: 3
 });
+// Returns: [chunk with surrounding context]
+```
+
+### 5. Remove Files
+```typescript
+// Remove file from index (instant response)
+const result = await remove_file({
+  filePath: "/docs/old-file.md"
+});
+// Returns: { deletedChunks: 15, success: true }
+```
+
+## Progress Tracking
+
+### Monitor Job Progress
+```typescript
+// Start a repository fetch
+const { jobId } = await fetch_repo({
+  repoUrl: "https://github.com/large/repository"
+});
+
+// Poll for progress (real-time accurate)
+const status = await get_job_status({ jobId });
+console.log(`${status.progress}% - ${status.currentStep}`);
+// Output: "73% - Generating embeddings (batch 45/67)"
+
+// List all active jobs
+const jobs = await list_active_jobs();
+console.log(`${jobs.length} jobs running`);
+```
+
+### Real Progress Examples
+```typescript
+// Typical progress flow for fetch_repo:
+"5% - Downloading repository..."
+"15% - Converting to markdown..."  
+"30% - Reading file content..."
+"35% - Chunking text..."
+"40% - Created 1,250 chunks"
+"50% - Generating embeddings..."
+"65% - Embedding batch 15/25 completed"
+"85% - Embedding batch 23/25 completed"
+"95% - Storing chunks in database..."
+"100% - Repository indexed successfully"
 ```
 
 ## Example Queries
@@ -111,124 +145,60 @@ await get_file_details({
 - "How to enable debug mode?"
 - "Find deprecated API usage"
 
-## Advanced Usage
+## Multiple Concurrent Requests
 
-### Custom Chunking Strategy
 ```typescript
-const chunker = new TextChunker({
-  strategy: "sentence-aware",
-  maxSize: 800,
-  overlap: 50
+// Start multiple fetch operations simultaneously
+const repo1 = await fetch_repo({ repoUrl: "https://github.com/org/repo1" });
+const repo2 = await fetch_repo({ repoUrl: "https://github.com/org/repo2" });
+const file1 = await fetch_file({ 
+  url: "https://example.com/docs.md", 
+  filename: "docs.md" 
 });
-```
 
-### Batch Processing
-```typescript
-// Index multiple folders
-await Promise.all([
-  index_files({ folderPath: "/docs/api" }),
-  index_files({ folderPath: "/docs/guides" })
-]);
-```
+// All return immediately with job IDs, process in background
+console.log("All started:", repo1.jobId, repo2.jobId, file1.jobId);
 
-### Incremental Updates
-```typescript
-// Update index with new files
-await update_index({
-  folderPath: "/docs",
-  changes: ["/docs/new-feature.md", "/docs/updated-api.md"]
-});
-```
-
-## Command Line Testing
-
-```bash
-# Interactive testing
-npm run dev
-
-# Direct tool invocation
-node build/index.js --help
-```
-
-## Integration with AI Agents
-
-### Context Window Optimization
-- Search for relevant code snippets
-- Retrieve API documentation chunks
-- Find configuration examples
-
-### Workflow Automation
-- Index repository documentation
-- Query for implementation details
-- Extract code patterns and examples
-
-## Performance Tuning
-
-### For Large Document Sets
-```typescript
-const options = {
-  maxFiles: 50000,
-  chunkSize: 500,  // Smaller chunks for precision
-  useGPU: true
-};
-```
-
-### Memory Constraints
-```typescript
-const options = {
-  maxMemory: "2GB",
-  streamingMode: true
-};
-```
-
-### GPS Acceleration
-```typescript
-const embeddingService = new EmbeddingService({
-  useGPU: true,
-  model: "Xenova/paraphrase-multilingual-mpnet-base-v2",
-  batchSize: 32
+// Check progress of all jobs
+const activeJobs = await list_active_jobs();
+activeJobs.forEach(job => {
+  console.log(`${job.id}: ${job.progress}% - ${job.currentStep}`);
 });
 ```
 
 ## Error Scenarios
 
-### Handling Missing Files
+### Handling Processing Failures
 ```typescript
-try {
-  await index_files({ folderPath: "/nonexistent/path" });
-} catch (error) {
-  console.log("Path not found:", error.message);
-  // Fallback to user input
+const { jobId } = await fetch_repo({
+  repoUrl: "https://github.com/invalid/repo"
+});
+
+// Check for errors
+const status = await get_job_status({ jobId });
+if (status.status === 'failed') {
+  console.log("Error:", status.error);
 }
 ```
 
-### Network Timeout
+### Network Issues
 ```typescript
 const result = await search_documents({
-  query: "complex query",
-  timeout: 30000,  // 30 seconds
-  fallback: "keyword search"
+  query: "complex query with network dependency"
 });
+// Always succeeds (searches local index only)
 ```
 
-## Configuration Files
+## Configuration
 
-### .env Configuration
+### Environment Variables
 ```env
-MCP_DEFAULT_FOLDER=C:/docs
-MCP_CHUNK_SIZE=1000
-MCP_EMBEDDING_MODEL=Xenova/paraphrase-albert-small-v2
-MCP_ENABLE_GPU=true
+MCP_DATA_FOLDER=/custom/data/path
+MCP_DOCS_FOLDER=/custom/docs/path
+NODE_ENV=production
 ```
 
-### Runtime Configuration
-```json
-{
-  "server": {
-    "logLevel": "info",
-    "experimental": {
-      "enableStreaming": true,
-      "useExternalStorage": false
-    }
-  }
-}
+### Embedding Model Configuration
+- Model: Universal Sentence Encoder (512 dimensions)
+- GPU acceleration: Automatic detection and usage
+- Batch size: Optimized for performance (32 chunks per batch)

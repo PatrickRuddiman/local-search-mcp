@@ -9,35 +9,24 @@ import {
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { SearchService } from './core/SearchService.js';
-import { RepoService } from './core/RepoService.js';
-import { FileDownloadService } from './core/FileDownloadService.js';
-import { FileWatcher } from './core/FileWatcher.js';
+import { BackgroundProcessor } from './core/BackgroundProcessor.js';
 import { JobManager } from './core/JobManager.js';
 import { logger, log } from './core/Logger.js';
 import { initializeMcpDirectories } from './core/PathUtils.js';
-import {
-  IndexOptions,
-  SearchOptions,
-  FileDetailsOptions
-} from './types/index.js';
 
 class LocalSearchServer {
   private server: Server;
   private searchService: SearchService;
-  private repoService: RepoService;
-  private fileDownloadService: FileDownloadService;
-  private fileWatcher: FileWatcher;
+  private backgroundProcessor: BackgroundProcessor;
   private jobManager: JobManager;
 
   constructor() {
-    const timer = log.time('server-constructor-total');
+    const timer = log.time('server-initialization');
     log.info('Starting Local Search MCP server initialization');
 
-    // Initialize MCP directories first to fix permission issues
-    log.debug('Initializing MCP directory structure');
+    // Initialize MCP directories
     initializeMcpDirectories().catch(error => {
       log.error('Failed to initialize MCP directories', error);
-      // Don't throw - try to continue with default behavior
     });
 
     // Log environment info
@@ -52,88 +41,34 @@ class LocalSearchServer {
       logStats: stats
     });
 
-    log.debug('Initializing service orchestration');
-
-    // Initialize the search service
-    const searchTimer = log.time('search-service-init');
-    log.debug('Creating SearchService instance');
+    // Initialize services
     try {
       this.searchService = new SearchService();
-      log.debug('SearchService initialized successfully');
-    } catch (error: any) {
-      log.error('Failed to initialize SearchService', error);
-      throw error;
-    }
-    searchTimer();
-
-    // Initialize file watcher for automatic indexing
-    const watcherTimer = log.time('file-watcher-init');
-    log.debug('Creating FileWatcher instance');
-    try {
-      this.fileWatcher = new FileWatcher(this.searchService);
-      log.debug('FileWatcher initialized successfully');
-    } catch (error: any) {
-      log.error('Failed to initialize FileWatcher', error);
-      throw error;
-    }
-    watcherTimer();
-
-    // Initialize repository and file services with watcher
-    const servicesTimer = log.time('services-init');
-    log.debug('Initializing RepoService, FileDownloadService, and JobManager');
-    try {
-      this.repoService = new RepoService(this.searchService, this.fileWatcher);
-      this.fileDownloadService = new FileDownloadService(this.searchService, this.fileWatcher);
+      this.backgroundProcessor = new BackgroundProcessor();
       this.jobManager = JobManager.getInstance();
-      log.debug('Repository and file services initialized successfully');
+
+      log.info('Core services initialized successfully');
     } catch (error: any) {
-      log.error('Failed to initialize service orchestration', error);
+      log.error('Failed to initialize services', error);
       throw error;
     }
-    servicesTimer();
 
     // Create MCP server
-    const serverTimer = log.time('mcp-server-init');
-    log.debug('Creating MCP Server instance');
-    try {
-      this.server = new Server(
-        {
-          name: 'local-search-mcp',
-          version: '0.1.0',
+    this.server = new Server(
+      {
+        name: 'local-search-mcp',
+        version: '0.1.0',
+      },
+      {
+        capabilities: {
+          tools: {},
         },
-        {
-          capabilities: {
-            tools: {},
-          },
-        }
-      );
-      log.debug('MCP Server instance created successfully');
-    } catch (error: any) {
-      log.error('Failed to create MCP Server', error);
-      throw error;
-    }
-    serverTimer();
+      }
+    );
 
-    // Setup tool handlers
-    const toolsTimer = log.time('tool-handlers-init');
-    log.debug('Setting up MCP tool handlers');
-    try {
-      this.setupToolHandlers();
-      log.debug('MCP tool handlers set up successfully');
-    } catch (error: any) {
-      log.error('Failed to setup tool handlers', error);
-      throw error;
-    }
-    toolsTimer();
-
-    // Initialize file watcher (async)
-    log.debug('Starting file watcher initialization (deferred)');
-    this.initializeFileWatcher().catch(error => {
-      log.error('File watcher initialization failed', error);
-    });
+    this.setupToolHandlers();
 
     // Setup error handling
-    log.debug('Setting up error handlers');
     this.server.onerror = (error) => {
       log.error('MCP Server error', error);
       console.error('[MCP Error]', error);
@@ -142,23 +77,18 @@ class LocalSearchServer {
     // Setup graceful shutdown
     process.on('SIGINT', async () => {
       log.info('Received SIGINT, starting graceful shutdown');
-      const shutdownTimer = log.time('graceful-shutdown');
-
       try {
-        await this.stopFileWatcher();
         await this.server.close();
         this.searchService.dispose();
         log.info('Graceful shutdown completed');
       } catch (error: any) {
         log.error('Error during graceful shutdown', error);
       }
-
-      shutdownTimer();
       process.exit(0);
     });
 
     timer();
-    log.info('Local Search MCP Server initialization completed');
+    log.info('Local Search MCP server initialization completed');
   }
 
   private setupToolHandlers() {
@@ -167,7 +97,7 @@ class LocalSearchServer {
       tools: [
         {
           name: 'search_documents',
-          description: 'Perform semantic search across the indexed documents. Computes embeddings for the query, calculates cosine similarity with stored chunks, and returns the most relevant results.',
+          description: 'Perform semantic search across the indexed documents. Fast database lookup operation.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -186,7 +116,7 @@ class LocalSearchServer {
         },
         {
           name: 'get_file_details',
-          description: 'Retrieve detailed content of a specific file with surrounding chunk context. Returns chunks without embeddings to save context window space. When chunkIndex is specified, returns the target chunk plus surrounding chunks for maximum context.',
+          description: 'Retrieve detailed content of a specific file with surrounding chunk context.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -198,8 +128,19 @@ class LocalSearchServer {
           },
         },
         {
+          name: 'remove_file',
+          description: 'Delete a file and all its associated chunks and embeddings from the index.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              filePath: { type: 'string', description: 'Absolute path to file to remove' },
+            },
+            required: ['filePath'],
+          },
+        },
+        {
           name: 'fetch_repo',
-          description: 'Clone a GitHub repository using repomix, convert to markdown, and add to searchable index. Uses repomix to clone and convert the repository, limiting to documentation-focused file types.',
+          description: 'Clone a GitHub repository using repomix, convert to markdown, and add to searchable index. Returns job ID for progress tracking.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -222,7 +163,7 @@ class LocalSearchServer {
         },
         {
           name: 'fetch_file',
-          description: 'Download a single file from a URL and add it to the searchable index after saving to the docs folder. Downloads a single file from supported text-based URLs and automatically indexes it.',
+          description: 'Download a single file from a URL and add it to the searchable index. Returns job ID for progress tracking.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -234,51 +175,7 @@ class LocalSearchServer {
                 properties: {
                   overwrite: { type: 'boolean', default: true, description: 'Whether to overwrite existing files' },
                   indexAfterSave: { type: 'boolean', default: true, description: 'Automatically index after download' },
-                  maxFileSizeMB: { type: 'number', default: 10, description: 'Maximum file size in MB' },
-                },
-              },
-            },
-            required: ['url', 'filename'],
-          },
-        },
-        {
-          name: 'start_fetch_repo',
-          description: 'Start async repository fetch operation and return job ID for polling. Non-blocking operation that returns immediately.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              repoUrl: { type: 'string', description: 'GitHub repository URL' },
-              branch: { type: 'string', description: 'Optional branch/tag/commit, defaults to main/master' },
-              options: {
-                type: 'object',
-                properties: {
-                  includePatterns: { type: 'array', items: { type: 'string' }, default: ['**/*.md', '**/*.mdx', '**/*.txt', '**/*.json', '**/*.rst', '**/*.yml', '**/*.yaml'], description: 'File patterns to include' },
-                  excludePatterns: { type: 'array', items: { type: 'string' }, default: ['**/node_modules/**'], description: 'File patterns to exclude' },
-                  maxFiles: { type: 'number', default: 1000, description: 'Maximum files to process' },
-                  outputStyle: { type: 'string', enum: ['markdown'], default: 'markdown', description: 'Output format (fixed to markdown)' },
-                  removeComments: { type: 'boolean', default: false, description: 'Remove comments from code files' },
-                  showLineNumbers: { type: 'boolean', default: true, description: 'Show line numbers in output' },
-                },
-              },
-            },
-            required: ['repoUrl'],
-          },
-        },
-        {
-          name: 'start_fetch_file',
-          description: 'Start async file download operation and return job ID for polling. Non-blocking operation that returns immediately.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              url: { type: 'string', description: 'URL of file to download' },
-              filename: { type: 'string', description: 'Desired filename for saving' },
-              docFolder: { type: 'string', default: './docs/fetched', description: 'Folder to save file' },
-              options: {
-                type: 'object',
-                properties: {
-                  overwrite: { type: 'boolean', default: true, description: 'Whether to overwrite existing files' },
-                  indexAfterSave: { type: 'boolean', default: true, description: 'Automatically index after download' },
-                  maxFileSizeMB: { type: 'number', default: 10, description: 'Maximum file size in MB' },
+                  maxFileSizeMB: { type: 'number', default: 1024, description: 'Maximum file size in MB' },
                 },
               },
             },
@@ -287,11 +184,11 @@ class LocalSearchServer {
         },
         {
           name: 'get_job_status',
-          description: 'Get status and progress of an async job by ID. Use to poll job completion and retrieve results.',
+          description: 'Get status and progress of an async job by ID with real-time accurate progress.',
           inputSchema: {
             type: 'object',
             properties: {
-              jobId: { type: 'string', description: 'Job ID returned from start_fetch_* operations' },
+              jobId: { type: 'string', description: 'Job ID returned from fetch_* operations' },
             },
             required: ['jobId'],
           },
@@ -304,11 +201,10 @@ class LocalSearchServer {
             properties: {},
           },
         },
-
       ],
     }));
 
-  // Handle tool calls
+    // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
       const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -317,7 +213,7 @@ class LocalSearchServer {
 
       try {
         const timer = log.time(`tool-${name}-${requestId}`);
-        let result;
+        let result: any;
 
         switch (name) {
           case 'search_documents':
@@ -326,17 +222,14 @@ class LocalSearchServer {
           case 'get_file_details':
             result = await this.handleGetFileDetails(args, requestId);
             break;
+          case 'remove_file':
+            result = await this.handleRemoveFile(args, requestId);
+            break;
           case 'fetch_repo':
             result = await this.handleFetchRepo(args, requestId);
             break;
           case 'fetch_file':
             result = await this.handleFetchFile(args, requestId);
-            break;
-          case 'start_fetch_repo':
-            result = await this.handleStartFetchRepo(args, requestId);
-            break;
-          case 'start_fetch_file':
-            result = await this.handleStartFetchFile(args, requestId);
             break;
           case 'get_job_status':
             result = await this.handleGetJobStatus(args, requestId);
@@ -357,7 +250,7 @@ class LocalSearchServer {
         return result;
 
       } catch (error: any) {
-        log.error(`[${requestId}] Tool call failed: ${name}`, error, { toolName: name, args });
+        log.error(`[${requestId}] Tool call failed: ${name}`, error);
         throw new McpError(
           ErrorCode.InternalError,
           `Tool error: ${error.message}`
@@ -366,8 +259,6 @@ class LocalSearchServer {
     });
   }
 
-
-
   private async handleSearchDocuments(args: any, requestId: string) {
     try {
       log.debug(`[${requestId}] Executing search_documents for query: "${args.query}"`);
@@ -375,12 +266,7 @@ class LocalSearchServer {
         args.query,
         args.options || {}
       );
-      log.debug(`[${requestId}] Search completed`, {
-        query: args.query,
-        resultsFound: result.totalResults,
-        searchTime: result.searchTime
-      });
-
+      
       const summary = `Found ${result.totalResults} results for "${result.query}" in ${result.searchTime}ms`;
 
       if (result.totalResults === 0) {
@@ -395,7 +281,7 @@ class LocalSearchServer {
       }
 
       const resultText = result.results
-        .slice(0, 5) // Limit to top 5 for response size
+        .slice(0, 5)
         .map((chunk, index) =>
           `${index + 1}. ${chunk.filePath}:${chunk.chunkIndex} (Score: ${chunk.score?.toFixed(3)})\n   ${chunk.content.substring(0, 200)}...`
         )
@@ -429,7 +315,6 @@ class LocalSearchServer {
         args.chunkIndex,
         args.contextSize || 3
       );
-      log.debug(`[${requestId}] Retrieved ${chunks.length} chunks for ${args.filePath}`);
 
       if (chunks.length === 0) {
         return {
@@ -443,7 +328,6 @@ class LocalSearchServer {
       }
 
       const summary = `Found ${chunks.length} chunks for ${args.filePath}`;
-
       const chunkText = chunks
         .map((chunk, index) =>
           `Chunk ${chunk.chunkIndex} (${chunk.metadata.tokenCount} tokens):\n${chunk.content.substring(0, 500)}${chunk.content.length > 500 ? '...' : ''}`
@@ -470,30 +354,63 @@ class LocalSearchServer {
     }
   }
 
+  private async handleRemoveFile(args: any, requestId: string) {
+    try {
+      log.debug(`[${requestId}] Removing file from index: ${args.filePath}`);
+      
+      // Use VectorIndex directly for instant file deletion
+      const vectorIndex = new (await import('./core/VectorIndex.js')).VectorIndex();
+      const deletedCount = await vectorIndex.deleteFile(args.filePath);
+      vectorIndex.close();
+
+      const message = deletedCount > 0 
+        ? `Removed ${deletedCount} chunks for file: ${args.filePath}`
+        : `No chunks found for file: ${args.filePath}`;
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: message,
+          },
+          {
+            type: 'text',
+            text: JSON.stringify({ deletedChunks: deletedCount, filePath: args.filePath }, null, 2),
+          },
+        ],
+      };
+    } catch (error: any) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to remove file: ${error.message}`
+      );
+    }
+  }
+
   private async handleFetchRepo(args: any, requestId: string) {
     try {
-      log.debug(`[${requestId}] Fetching repository: ${args.repoUrl}`, {
-        branch: args.branch,
-        options: args.options
-      });
-      const result = await this.repoService.fetchRepository(
-        args.repoUrl,
-        args.branch,
-        args.options || {}
-      );
-
-      if (!result.success) {
-        throw new Error(result.error);
-      }
-
-      log.info(`[${requestId}] Repository fetched successfully: ${result.repoName}`, {
-        filesProcessed: result.filesProcessed,
-        outputDir: result.outputDir
+      log.debug(`[${requestId}] Starting async repository fetch: ${args.repoUrl}`);
+      
+      const jobId = this.jobManager.createJob('fetch_repo', {
+        repoUrl: args.repoUrl,
+        branch: args.branch || 'default',
+        options: args.options || {}
       });
 
-      const message = `Successfully processed repository: ${result.repoName}\n` +
-                      `Files processed: ${result.filesProcessed}\n` +
-                      `Output directory: ${result.outputDir}`;
+      // Start background processing (fire and forget) - move to next tick to avoid blocking
+      setTimeout(() => {
+        this.backgroundProcessor.processRepoFetch(
+          jobId,
+          args.repoUrl,
+          args.branch,
+          args.options || {}
+        ).catch(error => {
+          this.jobManager.failJob(jobId, error.message);
+        });
+      }, 0);
+
+      const repoName = this.extractRepoName(args.repoUrl);
+      const message = `Started async repository fetch: ${repoName}\nJob ID: ${jobId}\nUse get_job_status to poll for completion.`;
 
       return {
         content: [
@@ -503,94 +420,7 @@ class LocalSearchServer {
           },
           {
             type: 'text',
-            text: JSON.stringify(result.stats, null, 2),
-          },
-        ],
-      };
-    } catch (error: any) {
-      throw new McpError(
-        ErrorCode.InternalError,
-        `Repository fetch failed: ${error.message}`
-      );
-    }
-  }
-
-  private async handleFetchFile(args: any, requestId: string) {
-    try {
-      log.debug(`[${requestId}] Downloading file: ${args.url}`, {
-        filename: args.filename,
-        docFolder: args.docFolder
-      });
-      const result = await this.fileDownloadService.downloadFile(
-        args.url,
-        args.filename,
-        args.docFolder, // Let the service use its own default
-        args.options || {}
-      );
-
-      if (!result.success) {
-        throw new Error(result.error);
-      }
-
-      const size = result.size;
-      log.info(`[${requestId}] File downloaded successfully: ${result.filePath}`, {
-        sizeKb: (size / 1024).toFixed(1)
-      });
-
-      const message = `Successfully downloaded file: ${result.filePath}\n` +
-                      `Size: ${(size / 1024).toFixed(1)}KB`;
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: message,
-          },
-          {
-            type: 'text',
-            text: JSON.stringify(result.indexResult, null, 2),
-          },
-        ],
-      };
-    } catch (error: any) {
-      throw new McpError(
-        ErrorCode.InternalError,
-        `File download failed: ${error.message}`
-      );
-    }
-  }
-
-
-
-  private async handleStartFetchRepo(args: any, requestId: string) {
-    try {
-      log.debug(`[${requestId}] Starting async repository fetch: ${args.repoUrl}`, {
-        branch: args.branch,
-        options: args.options
-      });
-      const result = await this.repoService.startFetchRepository(
-        args.repoUrl,
-        args.branch,
-        args.options || {}
-      );
-
-      log.info(`[${requestId}] Async repository fetch started: ${result.repoName}`, {
-        jobId: result.jobId
-      });
-
-      const message = `Started async repository fetch: ${result.repoName}\n` +
-                      `Job ID: ${result.jobId}\n` +
-                      `Use get_job_status to poll for completion.`;
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: message,
-          },
-          {
-            type: 'text',
-            text: JSON.stringify({ jobId: result.jobId, repoName: result.repoName }, null, 2),
+            text: JSON.stringify({ jobId, repoName }, null, 2),
           },
         ],
       };
@@ -602,26 +432,31 @@ class LocalSearchServer {
     }
   }
 
-  private async handleStartFetchFile(args: any, requestId: string) {
+  private async handleFetchFile(args: any, requestId: string) {
     try {
-      log.debug(`[${requestId}] Starting async file download: ${args.url}`, {
+      log.debug(`[${requestId}] Starting async file download: ${args.url}`);
+      
+      const jobId = this.jobManager.createJob('fetch_file', {
+        url: args.url,
         filename: args.filename,
-        docFolder: args.docFolder
-      });
-      const result = await this.fileDownloadService.startDownloadFile(
-        args.url,
-        args.filename,
-        args.docFolder,
-        args.options || {}
-      );
-
-      log.info(`[${requestId}] Async file download started: ${result.filename}`, {
-        jobId: result.jobId
+        docFolder: args.docFolder,
+        options: args.options || {}
       });
 
-      const message = `Started async file download: ${result.filename}\n` +
-                      `Job ID: ${result.jobId}\n` +
-                      `Use get_job_status to poll for completion.`;
+      // Start background processing (fire and forget) - move to next tick to avoid blocking
+      setTimeout(() => {
+        this.backgroundProcessor.processFileFetch(
+          jobId,
+          args.url,
+          args.filename,
+          args.docFolder,
+          args.options || {}
+        ).catch(error => {
+          this.jobManager.failJob(jobId, error.message);
+        });
+      }, 0);
+
+      const message = `Started async file download: ${args.filename}\nJob ID: ${jobId}\nUse get_job_status to poll for completion.`;
 
       return {
         content: [
@@ -631,7 +466,7 @@ class LocalSearchServer {
           },
           {
             type: 'text',
-            text: JSON.stringify({ jobId: result.jobId, filename: result.filename }, null, 2),
+            text: JSON.stringify({ jobId, filename: args.filename }, null, 2),
           },
         ],
       };
@@ -645,44 +480,62 @@ class LocalSearchServer {
 
   private async handleGetJobStatus(args: any, requestId: string) {
     try {
-      log.debug(`[${requestId}] Getting job status: ${args.jobId}`);
-      const job = this.jobManager.getJob(args.jobId);
+      log.debug(`[${requestId}] Getting job status (NON-BLOCKING): ${args.jobId}`);
+      
+      // Use async method with setImmediate to prevent blocking (2025 best practice)
+      return await new Promise((resolve) => {
+        setImmediate(() => {
+          try {
+            const job = this.jobManager.getJob(args.jobId);
 
-      if (!job) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Job not found: ${args.jobId}`,
-            },
-          ],
-        };
-      }
+            if (!job) {
+              resolve({
+                content: [
+                  {
+                    type: 'text',
+                    text: `Job not found: ${args.jobId}`,
+                  },
+                ],
+              });
+              return;
+            }
 
-      const duration = job.endTime 
-        ? job.endTime.getTime() - job.startTime.getTime()
-        : Date.now() - job.startTime.getTime();
+            const duration = job.endTime 
+              ? job.endTime.getTime() - job.startTime.getTime()
+              : Date.now() - job.startTime.getTime();
 
-      const message = `Job Status: ${job.id}\n` +
-                      `Type: ${job.type}\n` +
-                      `Status: ${job.status}\n` +
-                      `Progress: ${job.progress}%\n` +
-                      `Duration: ${(duration / 1000).toFixed(1)}s\n` +
-                      (job.error ? `Error: ${job.error}\n` : '') +
-                      (job.status === 'completed' ? 'Job completed successfully!' : '');
+            const message = `Job Status: ${job.id}\n` +
+                            `Type: ${job.type}\n` +
+                            `Status: ${job.status}\n` +
+                            `Progress: ${job.progress}%\n` +
+                            `Duration: ${(duration / 1000).toFixed(1)}s\n` +
+                            (job.error ? `Error: ${job.error}\n` : '') +
+                            (job.status === 'completed' ? 'Job completed successfully!' : '');
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: message,
-          },
-          {
-            type: 'text',
-            text: JSON.stringify(job, null, 2),
-          },
-        ],
-      };
+            resolve({
+              content: [
+                {
+                  type: 'text',
+                  text: message,
+                },
+                {
+                  type: 'text',
+                  text: JSON.stringify(job, null, 2),
+                },
+              ],
+            });
+          } catch (error: any) {
+            resolve({
+              content: [
+                {
+                  type: 'text',
+                  text: `Error getting job status: ${error.message}`,
+                },
+              ],
+            });
+          }
+        });
+      });
     } catch (error: any) {
       throw new McpError(
         ErrorCode.InternalError,
@@ -693,48 +546,66 @@ class LocalSearchServer {
 
   private async handleListActiveJobs(args: any, requestId: string) {
     try {
-      log.debug(`[${requestId}] Listing active jobs`);
-      const activeJobs = this.jobManager.getActiveJobs();
-      const stats = this.jobManager.getStatistics();
+      log.debug(`[${requestId}] Listing active jobs (NON-BLOCKING)`);
+      
+      // Use async method with setImmediate to prevent blocking (2025 best practice)
+      return await new Promise((resolve) => {
+        setImmediate(() => {
+          try {
+            const activeJobs = this.jobManager.getActiveJobs();
+            const stats = this.jobManager.getStatistics();
 
-      if (activeJobs.length === 0) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `No active jobs running.\n\nTotal jobs: ${stats.total}\nCompleted: ${stats.completed}\nFailed: ${stats.failed}`,
-            },
-          ],
-        };
-      }
+            if (activeJobs.length === 0) {
+              resolve({
+                content: [
+                  {
+                    type: 'text',
+                    text: `No active jobs running.\n\nTotal jobs: ${stats.total}\nCompleted: ${stats.completed}\nFailed: ${stats.failed}`,
+                  },
+                ],
+              });
+              return;
+            }
 
-      const jobSummary = activeJobs
-        .map(job => {
-          const duration = Date.now() - job.startTime.getTime();
-          return `${job.id}: ${job.type} (${job.progress}%, ${(duration / 1000).toFixed(1)}s)`;
-        })
-        .join('\n');
+            const jobSummary = activeJobs
+              .map(job => {
+                const duration = Date.now() - job.startTime.getTime();
+                return `${job.id}: ${job.type} (${job.progress}%, ${(duration / 1000).toFixed(1)}s)`;
+              })
+              .join('\n');
 
-      const message = `Active Jobs (${activeJobs.length}):\n${jobSummary}\n\n` +
-                      `Statistics:\n` +
-                      `Total: ${stats.total}\n` +
-                      `Running: ${stats.running}\n` +
-                      `Completed: ${stats.completed}\n` +
-                      `Failed: ${stats.failed}\n` +
-                      `Avg Duration: ${(stats.averageDuration / 1000).toFixed(1)}s`;
+            const message = `Active Jobs (${activeJobs.length}):\n${jobSummary}\n\n` +
+                            `Statistics:\n` +
+                            `Total: ${stats.total}\n` +
+                            `Running: ${stats.running}\n` +
+                            `Completed: ${stats.completed}\n` +
+                            `Failed: ${stats.failed}\n` +
+                            `Avg Duration: ${(stats.averageDuration / 1000).toFixed(1)}s`;
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: message,
-          },
-          {
-            type: 'text',
-            text: JSON.stringify(activeJobs, null, 2),
-          },
-        ],
-      };
+            resolve({
+              content: [
+                {
+                  type: 'text',
+                  text: message,
+                },
+                {
+                  type: 'text',
+                  text: JSON.stringify(activeJobs, null, 2),
+                },
+              ],
+            });
+          } catch (error: any) {
+            resolve({
+              content: [
+                {
+                  type: 'text',
+                  text: `Error listing active jobs: ${error.message}`,
+                },
+              ],
+            });
+          }
+        });
+      });
     } catch (error: any) {
       throw new McpError(
         ErrorCode.InternalError,
@@ -744,32 +615,22 @@ class LocalSearchServer {
   }
 
   /**
-   * Initialize file watcher
+   * Extract repository name from URL
    */
-  private async initializeFileWatcher(): Promise<void> {
-    log.debug('Initializing file watcher (deferred)');
+  private extractRepoName(repoUrl: string): string {
     try {
-      const timer = log.time('file-watcher-start');
-      await this.fileWatcher.startWatching();
-      log.info('File watcher started for automatic indexing');
-      timer();
-    } catch (error: any) {
-      log.error('Failed to start file watcher', error);
-      log.warn('File watcher disabled - manual indexing will still work');
-      // Don't throw - file watcher is not critical for basic functionality
-    }
-  }
+      const url = repoUrl.replace(/\.git$/, '');
+      const parts = url.split('/');
 
-  /**
-   * Stop file watcher
-   */
-  private async stopFileWatcher(): Promise<void> {
-    log.debug('Stopping file watcher');
-    try {
-      await this.fileWatcher.stopWatching();
-      log.info('File watcher stopped');
-    } catch (error: any) {
-      log.error('Error stopping file watcher', error);
+      if (parts.length >= 2) {
+        const owner = parts[parts.length - 2];
+        const repo = parts[parts.length - 1];
+        return `${owner}_${repo}`;
+      }
+
+      throw new Error('Invalid repo URL format');
+    } catch (error) {
+      return `unknown_repo_${Date.now()}`;
     }
   }
 
@@ -782,7 +643,7 @@ class LocalSearchServer {
       timer();
 
       log.info('Local Search MCP server running on stdio', {
-        availableTools: ['search_documents', 'get_file_details', 'fetch_repo', 'fetch_file']
+        availableTools: ['search_documents', 'get_file_details', 'remove_file', 'fetch_repo', 'fetch_file']
       });
 
       console.error('Local Search MCP server running on stdio');
