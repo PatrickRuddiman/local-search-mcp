@@ -51,28 +51,25 @@ export class RepoService {
 
     try {
       const mcpPaths = getMcpPaths();
-      const tempDir = path.join(mcpPaths.temp, `${repoName}_${Date.now()}`);
       const outputDir = path.join(mcpPaths.repositories, repoName);
 
       log.debug('Repository paths configured', {
-        tempDir,
         outputDir,
         repoName,
         docsFolder: mcpPaths.docs,
         dataFolder: mcpPaths.data
       });
 
-      // Create directories
+      // Create output directory
       const setupTimer = log.time('repo-directories-setup');
-      await ensureDirectoryExists(tempDir, 'Repository temp directory');
       await ensureDirectoryExists(outputDir, 'Repository output directory');
       setupTimer();
 
-      log.debug('Repository directories created successfully');
+      log.debug('Repository directory created successfully');
 
       // Clone and convert repository using repomix
       const downloadTimer = log.time('repo-download-processing');
-      await this.downloadRepositoryWithRepomix(repoUrl, branch, tempDir, outputDir, options);
+      await this.downloadRepositoryWithRepomix(repoUrl, branch, outputDir, options);
       downloadTimer();
 
       // Index the downloaded content
@@ -85,15 +82,6 @@ export class RepoService {
         fileTypes: ['.md', '.txt', '.json', '.rst']
       });
       indexTimer();
-
-      // Clean up temporary directory
-      try {
-        log.debug('Cleaning up temporary repository directory');
-        await this.rmDir(tempDir);
-        log.debug('Temporary directory cleanup completed');
-      } catch (cleanupError: any) {
-        log.warn('Failed to cleanup temporary directory', { tempDir, error: cleanupError.message });
-      }
 
       timer();
       log.info('Repository fetch operation completed successfully', {
@@ -133,14 +121,10 @@ export class RepoService {
   private async downloadRepositoryWithRepomix(
     repoUrl: string,
     branch: string | undefined,
-    tempDir: string,
     outputDir: string,
     options: RepoDownloadOptions
   ): Promise<void> {
     try {
-      // Build repository URL with branch if specified
-      const repoWithBranch = branch ? `${repoUrl}#${branch}` : repoUrl;
-
       // Build include and exclude patterns
       const includePatterns = options.includePatterns || ['*.md', '*.txt', '*.json', '*.rst'];
       const excludePatterns = [
@@ -160,23 +144,26 @@ export class RepoService {
       const exclude = excludePatterns.join(',');
 
       log.info('Starting repomix repository processing', {
-        repoUrl: repoWithBranch,
+        repoUrl,
+        branch,
         outputDir,
         include,
         exclude,
         options
       });
 
-      // Use repomix library to process repository
+      // Use repomix library to process repository with remote options
       const repomixTimer = log.time('repomix-processing');
-      await runCli([repoWithBranch], tempDir, {
+      await runCli(['.'], outputDir, {
+        remote: repoUrl,
+        remoteBranch: branch,
         output: outputDir,
         include,
         ignore: exclude,
         style: options.outputStyle || 'markdown',
         removeComments: options.removeComments || false,
         removeEmptyLines: false,
-        includeLineNumbers: options.showLineNumbers || true,
+        outputShowLineNumbers: options.showLineNumbers || true,
         topFilesLen: 0, // Disable file length limits
         compress: false, // No compression needed for MCP
         quiet: false, // Show progress for debugging
@@ -185,7 +172,8 @@ export class RepoService {
       repomixTimer();
 
       log.info('Repository processed successfully via repomix', {
-        repoUrl: repoWithBranch,
+        repoUrl,
+        branch,
         outputDir
       });
 
