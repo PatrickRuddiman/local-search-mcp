@@ -77,12 +77,27 @@ export interface IndexingResult {
   errors: string[];
 }
 
+export interface DocumentChunkOptimized {
+  id: string;
+  filePath: string;
+  chunkIndex: number;
+  content: string;
+  score?: number;
+  metadata: {
+    fileSize: number;
+    lastModified: Date;
+    chunkOffset: number;
+    tokenCount: number;
+  };
+}
+
 export interface SearchResult {
   query: string;
-  results: DocumentChunk[];
+  results: DocumentChunkOptimized[];
   totalResults: number;
   searchTime: number;
   options: SearchOptions;
+  nextSteps?: string[];
 }
 
 export interface VectorIndexStatistics {

@@ -4,6 +4,7 @@ import { SearchService } from './SearchService.js';
 import { FileWatcher } from './FileWatcher.js';
 import { log } from './Logger.js';
 import { getMcpPaths, ensureDirectoryExists } from './PathUtils.js';
+import { JobManager } from './JobManager.js';
 
 interface FileDownloadOptions {
   overwrite?: boolean;
@@ -14,16 +15,49 @@ interface FileDownloadOptions {
 export class FileDownloadService {
   private searchService: SearchService;
   private fileWatcher?: FileWatcher;
+  private jobManager: JobManager;
 
   constructor(searchService: SearchService, fileWatcher?: FileWatcher) {
     log.debug('Initializing FileDownloadService');
     this.searchService = searchService;
     this.fileWatcher = fileWatcher;
+    this.jobManager = JobManager.getInstance();
     log.debug('FileDownloadService initialized successfully');
   }
 
   /**
-   * Download file from URL and optionally index it
+   * Start async file download (returns immediately with job ID)
+   * @param url File URL
+   * @param filename Desired filename
+   * @param docFolder Target folder
+   * @param options Download options
+   * @returns Job ID for polling
+   */
+  async startDownloadFile(
+    url: string,
+    filename: string,
+    docFolder?: string,
+    options: FileDownloadOptions = {}
+  ): Promise<{ jobId: string; filename: string }> {
+    const jobId = this.jobManager.createJob('fetch_file', {
+      url,
+      filename,
+      docFolder: docFolder || getMcpPaths().fetched,
+      options
+    });
+
+    log.info('Starting async file download', { jobId, url, filename });
+
+    // Start processing in background
+    this.processDownloadFileAsync(jobId, url, filename, docFolder, options).catch(error => {
+      this.jobManager.failJob(jobId, error.message);
+    });
+
+    return { jobId, filename };
+  }
+
+  /**
+   * Download file from URL and optionally index it (synchronous version)
    * @param url File URL
    * @param filename Desired filename
    * @param docFolder Target folder
@@ -64,7 +98,7 @@ export class FileDownloadService {
       log.debug('File content downloaded successfully', {
         operationId,
         contentLength: fileContent.length,
-        sizeBytes: Buffer.byteLength(fileContent, 'utf-8')
+        sizeBytes: fileContent.length
       });
 
       // Sanitize filename
@@ -118,7 +152,7 @@ export class FileDownloadService {
         log.debug('File indexing skipped', { operationId, reason: 'indexAfterSave=false' });
       }
 
-      const fileSize = Buffer.byteLength(fileContent, 'utf-8');
+      const fileSize = fileContent.length;
       timer();
       log.info('File download operation completed successfully', {
         operationId,
@@ -188,12 +222,12 @@ export class FileDownloadService {
         reject(new Error('Download timeout'));
       });
 
-      request.on('error', (error) => {
+      request.on('error', (error: any) => {
         log.error('HTTP request failed', error, { url, protocol });
         reject(new Error(`Network error: ${error.message}`));
       });
 
-      request.on('response', (res) => {
+      request.on('response', (res: any) => {
         log.debug('HTTP response received', {
           url,
           statusCode: res.statusCode,
@@ -215,7 +249,7 @@ export class FileDownloadService {
           return;
         }
 
-        res.on('data', (chunk) => {
+        res.on('data', (chunk: any) => {
           chunkCount++;
           data += chunk;
           downloadedBytes += chunk.length;
@@ -228,7 +262,7 @@ export class FileDownloadService {
           });
 
           // Check size limit
-          if (Buffer.byteLength(data, 'utf-8') > maxSize) {
+          if (data.length > maxSize) {
             log.warn('Download size limit exceeded', {
               url,
               maxSizeMB,
@@ -241,7 +275,7 @@ export class FileDownloadService {
         });
 
         res.on('end', () => {
-          const finalSize = Buffer.byteLength(data, 'utf-8');
+          const finalSize = data.length;
           log.info('Download completed successfully', {
             url,
             totalChunks: chunkCount,
@@ -252,7 +286,7 @@ export class FileDownloadService {
           resolve(data);
         });
 
-        res.on('error', (error) => {
+        res.on('error', (error: any) => {
           log.error('Response stream error', error, { url });
           reject(new Error(`Download failed: ${error.message}`));
         });
@@ -271,6 +305,68 @@ export class FileDownloadService {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Background processing for async file download
+   */
+  private async processDownloadFileAsync(
+    jobId: string,
+    url: string,
+    filename: string,
+    docFolder?: string,
+    options: FileDownloadOptions = {}
+  ): Promise<void> {
+    try {
+      this.jobManager.updateProgress(jobId, 10, 'Initializing file download...');
+
+      const targetFolder = docFolder || getMcpPaths().fetched;
+
+      this.jobManager.updateProgress(jobId, 20, 'Creating target directory...');
+      await ensureDirectoryExists(targetFolder, 'File download target directory');
+
+      this.jobManager.updateProgress(jobId, 30, 'Downloading file content...');
+      const fileContent = await this.downloadFromUrl(url, options.maxFileSizeMB || 10);
+
+      this.jobManager.updateProgress(jobId, 60, 'Saving file to disk...');
+      const safeFilename = this.sanitizeFilename(filename);
+      const filePath = path.join(targetFolder, safeFilename);
+
+      // Check if file exists and handle overwrite
+      const exists = await this.fileExists(filePath);
+      if (exists && !options.overwrite) {
+        throw new Error(`File ${filePath} already exists and overwrite=false`);
+      }
+
+      await fs.writeFile(filePath, fileContent, 'utf-8');
+      const fileSize = fileContent.length;
+
+      // Index file if requested
+      let indexResult = null;
+      if (options.indexAfterSave !== false) {
+        this.jobManager.updateProgress(jobId, 80, 'Indexing file content...');
+        indexResult = await this.searchService.indexFiles(targetFolder, {
+          chunkSize: 1000,
+          overlap: 200,
+          maxFiles: 1
+        });
+      }
+
+      this.jobManager.updateProgress(jobId, 100, 'File download completed successfully');
+
+      const result = {
+        success: true,
+        filePath,
+        size: fileSize,
+        indexResult
+      };
+
+      this.jobManager.completeJob(jobId, result);
+
+    } catch (error: any) {
+      log.error('Async file download failed', error, { jobId, url, filename });
+      this.jobManager.failJob(jobId, error.message);
     }
   }
 

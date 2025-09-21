@@ -6,6 +6,7 @@ import { FileWatcher } from './FileWatcher.js';
 import { IndexOptions } from '../types/index.js';
 import { log } from './Logger.js';
 import { getDocsFolder, getMcpPaths, ensureDirectoryExists } from './PathUtils.js';
+import { JobManager } from './JobManager.js';
 
 interface RepoDownloadOptions {
   includePatterns?: string[];
@@ -19,16 +20,49 @@ interface RepoDownloadOptions {
 export class RepoService {
   private searchService: SearchService;
   private fileWatcher?: FileWatcher;
+  private jobManager: JobManager;
 
   constructor(searchService: SearchService, fileWatcher?: FileWatcher) {
     log.debug('Initializing RepoService');
     this.searchService = searchService;
     this.fileWatcher = fileWatcher;
+    this.jobManager = JobManager.getInstance();
     log.debug('RepoService initialized successfully');
   }
 
   /**
-   * Fetch repository using repomix and index it
+   * Start async repository fetch (returns immediately with job ID)
+   * @param repoUrl GitHub repository URL
+   * @param branch Optional branch/tag/commit
+   * @param options Repomix options
+   * @returns Job ID for polling
+   */
+  async startFetchRepository(
+    repoUrl: string,
+    branch?: string,
+    options: RepoDownloadOptions = {}
+  ): Promise<{ jobId: string; repoName: string }> {
+    const repoName = this.extractRepoName(repoUrl);
+    
+    const jobId = this.jobManager.createJob('fetch_repo', {
+      repoUrl,
+      branch: branch || 'default',
+      repoName,
+      options
+    });
+
+    log.info('Starting async repository fetch', { jobId, repoUrl, repoName });
+
+    // Start processing in background
+    this.processFetchRepositoryAsync(jobId, repoUrl, branch, options).catch(error => {
+      this.jobManager.failJob(jobId, error.message);
+    });
+
+    return { jobId, repoName };
+  }
+
+  /**
+   * Fetch repository using repomix and index it (synchronous version)
    * @param repoUrl GitHub repository URL
    * @param branch Optional branch/tag/commit
    * @param options Repomix options
@@ -214,11 +248,57 @@ export class RepoService {
   }
 
   /**
+   * Background processing for async repository fetch
+   */
+  private async processFetchRepositoryAsync(
+    jobId: string,
+    repoUrl: string,
+    branch?: string,
+    options: RepoDownloadOptions = {}
+  ): Promise<void> {
+    try {
+      this.jobManager.updateProgress(jobId, 10, 'Initializing repository fetch...');
+
+      const repoName = this.extractRepoName(repoUrl);
+      const mcpPaths = getMcpPaths();
+      const outputDir = path.join(mcpPaths.repositories, repoName);
+
+      this.jobManager.updateProgress(jobId, 20, 'Creating output directory...');
+      await ensureDirectoryExists(outputDir, 'Repository output directory');
+
+      this.jobManager.updateProgress(jobId, 30, 'Downloading repository with repomix...');
+      await this.downloadRepositoryWithRepomix(repoUrl, branch, outputDir, options);
+
+      this.jobManager.updateProgress(jobId, 70, 'Indexing repository content...');
+      const indexResult = await this.searchService.indexFiles(outputDir, {
+        chunkSize: 1000,
+        overlap: 200,
+        maxFiles: options.maxFiles || 1000,
+        fileTypes: ['.md', '.txt', '.json', '.rst']
+      });
+
+      this.jobManager.updateProgress(jobId, 100, 'Repository fetch completed successfully');
+
+      const result = {
+        success: true,
+        repoName,
+        filesProcessed: indexResult.processedFiles,
+        outputDir,
+        stats: indexResult
+      };
+
+      this.jobManager.completeJob(jobId, result);
+
+    } catch (error: any) {
+      log.error('Async repository fetch failed', error, { jobId, repoUrl });
+      this.jobManager.failJob(jobId, error.message);
+    }
+  }
+
+  /**
    * Remove directory recursively
    */
   private async rmDir(dirPath: string): Promise<void> {
-    const fsSync = await import('fs');
-    const { rm } = fs;
-    await rm(dirPath, { recursive: true, force: true });
+    await fs.rm(dirPath, { recursive: true, force: true });
   }
 }

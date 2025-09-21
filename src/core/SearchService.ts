@@ -5,6 +5,7 @@ import { VectorIndex } from './VectorIndex.js';
 import { log } from './Logger.js';
 import {
   DocumentChunk,
+  DocumentChunkOptimized,
   IndexingResult,
   SearchResult,
   SearchOptions,
@@ -133,7 +134,7 @@ export class SearchService {
       const results = await Promise.all(fileTasks);
 
       // Count successful processes
-      processedFiles = results.filter((result) => result.success).length;
+      processedFiles = results.filter((result: any) => result.success).length;
 
       log.info('Parallel file processing complete', {
         processed: processedFiles,
@@ -242,7 +243,7 @@ export class SearchService {
    * Search for documents using semantic similarity
    * @param query Natural language query
    * @param options Search configuration
-   * @returns Search results
+   * @returns Search results with optimized response (no embeddings)
    */
   async searchDocuments(query: string, options: SearchOptions = {}): Promise<SearchResult> {
     const startTime = Date.now();
@@ -252,21 +253,46 @@ export class SearchService {
       const queryEmbedding = await this.embeddingService.embedQuery(query);
 
       // Search for similar chunks in the vector index
-      const results = await this.vectorIndex.searchSimilar(
+      const rawResults = await this.vectorIndex.searchSimilar(
         queryEmbedding,
         options.limit || 10,
         options.minScore || 0.0
       );
 
       const searchTime = Date.now() - startTime;
-      const totalResults = results.length;
+      const totalResults = rawResults.length;
+
+      // Remove embedding arrays to save context window space
+      const optimizedResults: DocumentChunkOptimized[] = rawResults.map(chunk => {
+        const { embedding, ...chunkWithoutEmbedding } = chunk;
+        return chunkWithoutEmbedding as DocumentChunkOptimized;
+      });
+
+      // Generate next steps guidance for LLM workflow
+      const nextSteps: string[] = [];
+      if (optimizedResults.length > 0) {
+        const topResult = optimizedResults[0];
+        nextSteps.push(
+          `For full content of top result: get_file_details({filePath: "${topResult.filePath}", chunkIndex: ${topResult.chunkIndex}})`
+        );
+        
+        if (optimizedResults.length > 1) {
+          const uniqueFiles = [...new Set(optimizedResults.slice(0, 3).map(r => r.filePath))];
+          uniqueFiles.forEach(filePath => {
+            nextSteps.push(
+              `For all chunks in "${path.basename(filePath)}": get_file_details({filePath: "${filePath}"})`
+            );
+          });
+        }
+      }
 
       return {
         query,
-        results,
+        results: optimizedResults,
         totalResults,
         searchTime,
-        options
+        options,
+        nextSteps
       };
 
     } catch (error) {
@@ -276,29 +302,55 @@ export class SearchService {
         results: [],
         totalResults: 0,
         searchTime: Date.now() - startTime,
-        options
+        options,
+        nextSteps: []
       };
     }
   }
 
   /**
-   * Get file details and content
+   * Get file details and content with context
    * @param filePath Absolute file path
    * @param chunkIndex Optional specific chunk index
-   * @param contextLines Number of surrounding lines for context
-   * @returns File chunks and content
+   * @param contextSize Number of surrounding chunks to include (default 3)
+   * @returns File chunks and content without embeddings
    */
-  async getFileDetails(filePath: string, chunkIndex?: number, contextLines: number = 3): Promise<DocumentChunk[]> {
+  async getFileDetails(filePath: string, chunkIndex?: number, contextSize: number = 3): Promise<DocumentChunkOptimized[]> {
     try {
       if (chunkIndex !== undefined) {
-        // Get specific chunk
-        const chunkId = `${filePath}:${chunkIndex}`;
-        const chunk = await this.vectorIndex.getChunk(chunkId);
-        return chunk ? [chunk] : [];
+        // Get specific chunk with surrounding context
+        const allChunks = await this.vectorIndex.getFileChunks(filePath);
+        
+        if (allChunks.length === 0) {
+          return [];
+        }
+
+        // Find the target chunk
+        const targetChunkIndex = allChunks.findIndex(chunk => chunk.chunkIndex === chunkIndex);
+        
+        if (targetChunkIndex === -1) {
+          return [];
+        }
+
+        // Calculate context window
+        const startIndex = Math.max(0, targetChunkIndex - contextSize);
+        const endIndex = Math.min(allChunks.length - 1, targetChunkIndex + contextSize);
+        
+        // Get context chunks
+        const contextChunks = allChunks.slice(startIndex, endIndex + 1);
+        
+        // Remove embeddings and return optimized chunks
+        return contextChunks.map(chunk => {
+          const { embedding, ...chunkWithoutEmbedding } = chunk;
+          return chunkWithoutEmbedding as DocumentChunkOptimized;
+        });
       } else {
-        // Get all chunks for the file
+        // Get all chunks for the file (without embeddings)
         const chunks = await this.vectorIndex.getFileChunks(filePath);
-        return chunks;
+        return chunks.map(chunk => {
+          const { embedding, ...chunkWithoutEmbedding } = chunk;
+          return chunkWithoutEmbedding as DocumentChunkOptimized;
+        });
       }
     } catch (error) {
       console.error(`Failed to get file details for ${filePath}:`, error);
@@ -412,7 +464,7 @@ export class SearchService {
    * @returns Array of file paths
    */
   private async getAllFiles(dirPath: string): Promise<string[]> {
-    const fs = await import('fs').then(m => m.promises);
+    const { promises: fsPromises } = await import('fs');
     const pathModule = await import('path');
 
     try {

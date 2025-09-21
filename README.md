@@ -197,18 +197,33 @@ Perform semantic similarity search across indexed content.
 
 ### `get_file_details`
 
-Retrieve detailed content and chunks for a specific file.
+Retrieve detailed content and chunks for a specific file with surrounding context. **Enhanced in latest version** to remove embeddings from responses (saving ~80% context space) and return surrounding chunks for maximum context.
 
 **Parameters:**
 ```typescript
 {
   filePath: string,        // Absolute path to indexed file
   chunkIndex?: number,     // Specific chunk index (optional)
-  contextLines?: number    // Context lines around chunk (default: 3)
+  contextSize?: number     // Number of chunks before/after target (default: 3)
 }
 ```
 
-**Returns:** File chunks with metadata and content.
+**Returns:** File chunks with metadata and content (embeddings removed for efficiency).
+
+**New Workflow Example:**
+```typescript
+// 1. Search for relevant content
+const results = await search_documents({
+  query: "authentication configuration"
+});
+
+// 2. Get detailed context for top result
+const details = await get_file_details({
+  filePath: results.results[0].filePath,
+  chunkIndex: results.results[0].chunkIndex,
+  contextSize: 5  // Get 5 chunks before/after for full context
+});
+```
 
 ### `fetch_repo`
 
@@ -252,6 +267,65 @@ Download and index a file from a URL.
 ```
 
 **Returns:** Download status and indexing results.
+
+### Async Job Management Tools
+
+The server now supports asynchronous operations with job tracking to prevent timeouts during heavy processing.
+
+#### `start_fetch_repo`
+
+Start an async repository fetch operation and return immediately with a job ID.
+
+**Parameters:** Same as `fetch_repo`
+
+**Returns:** Job ID for polling completion
+
+#### `start_fetch_file`
+
+Start an async file download operation and return immediately with a job ID.
+
+**Parameters:** Same as `fetch_file`
+
+**Returns:** Job ID for polling completion
+
+#### `get_job_status`
+
+Poll the status of an async job by ID.
+
+**Parameters:**
+```typescript
+{
+  jobId: string              // Job ID from start_fetch_* operations
+}
+```
+
+**Returns:** Job status with progress, duration, and results when complete
+
+#### `list_active_jobs`
+
+List all currently running jobs with progress information.
+
+**Returns:** Array of active jobs with statistics
+
+**Async Workflow Example:**
+```typescript
+// 1. Start async repository fetch
+const repoJob = await start_fetch_repo({
+  repoUrl: "https://github.com/large/repository"
+});
+
+// 2. Start async file download
+const fileJob = await start_fetch_file({
+  url: "https://example.com/large-file.json",
+  filename: "data.json"
+});
+
+// 3. Poll for completion
+const status = await get_job_status({ jobId: repoJob.jobId });
+
+// 4. Check all active jobs
+const activeJobs = await list_active_jobs();
+```
 
 ## 🏗️ Architecture
 

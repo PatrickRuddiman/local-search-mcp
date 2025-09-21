@@ -12,6 +12,7 @@ import { SearchService } from './core/SearchService.js';
 import { RepoService } from './core/RepoService.js';
 import { FileDownloadService } from './core/FileDownloadService.js';
 import { FileWatcher } from './core/FileWatcher.js';
+import { JobManager } from './core/JobManager.js';
 import { logger, log } from './core/Logger.js';
 import { initializeMcpDirectories } from './core/PathUtils.js';
 import {
@@ -26,6 +27,7 @@ class LocalSearchServer {
   private repoService: RepoService;
   private fileDownloadService: FileDownloadService;
   private fileWatcher: FileWatcher;
+  private jobManager: JobManager;
 
   constructor() {
     const timer = log.time('server-constructor-total');
@@ -78,10 +80,11 @@ class LocalSearchServer {
 
     // Initialize repository and file services with watcher
     const servicesTimer = log.time('services-init');
-    log.debug('Initializing RepoService and FileDownloadService');
+    log.debug('Initializing RepoService, FileDownloadService, and JobManager');
     try {
       this.repoService = new RepoService(this.searchService, this.fileWatcher);
       this.fileDownloadService = new FileDownloadService(this.searchService, this.fileWatcher);
+      this.jobManager = JobManager.getInstance();
       log.debug('Repository and file services initialized successfully');
     } catch (error: any) {
       log.error('Failed to initialize service orchestration', error);
@@ -183,13 +186,13 @@ class LocalSearchServer {
         },
         {
           name: 'get_file_details',
-          description: 'Retrieve detailed content of a specific file with chunk context. Provides detailed view of indexed files, useful for AI agent context retrieval.',
+          description: 'Retrieve detailed content of a specific file with surrounding chunk context. Returns chunks without embeddings to save context window space. When chunkIndex is specified, returns the target chunk plus surrounding chunks for maximum context.',
           inputSchema: {
             type: 'object',
             properties: {
               filePath: { type: 'string', description: 'Absolute path to file' },
-              chunkIndex: { type: 'number', description: 'Optional specific chunk to retrieve' },
-              contextLines: { type: 'number', default: 3, description: 'Lines of context around chunk' },
+              chunkIndex: { type: 'number', description: 'Optional specific chunk to retrieve with surrounding context' },
+              contextSize: { type: 'number', default: 3, description: 'Number of chunks to include before and after the target chunk (default 3)' },
             },
             required: ['filePath'],
           },
@@ -238,6 +241,69 @@ class LocalSearchServer {
             required: ['url', 'filename'],
           },
         },
+        {
+          name: 'start_fetch_repo',
+          description: 'Start async repository fetch operation and return job ID for polling. Non-blocking operation that returns immediately.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              repoUrl: { type: 'string', description: 'GitHub repository URL' },
+              branch: { type: 'string', description: 'Optional branch/tag/commit, defaults to main/master' },
+              options: {
+                type: 'object',
+                properties: {
+                  includePatterns: { type: 'array', items: { type: 'string' }, default: ['**/*.md', '**/*.mdx', '**/*.txt', '**/*.json', '**/*.rst', '**/*.yml', '**/*.yaml'], description: 'File patterns to include' },
+                  excludePatterns: { type: 'array', items: { type: 'string' }, default: ['**/node_modules/**'], description: 'File patterns to exclude' },
+                  maxFiles: { type: 'number', default: 1000, description: 'Maximum files to process' },
+                  outputStyle: { type: 'string', enum: ['markdown'], default: 'markdown', description: 'Output format (fixed to markdown)' },
+                  removeComments: { type: 'boolean', default: false, description: 'Remove comments from code files' },
+                  showLineNumbers: { type: 'boolean', default: true, description: 'Show line numbers in output' },
+                },
+              },
+            },
+            required: ['repoUrl'],
+          },
+        },
+        {
+          name: 'start_fetch_file',
+          description: 'Start async file download operation and return job ID for polling. Non-blocking operation that returns immediately.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              url: { type: 'string', description: 'URL of file to download' },
+              filename: { type: 'string', description: 'Desired filename for saving' },
+              docFolder: { type: 'string', default: './docs/fetched', description: 'Folder to save file' },
+              options: {
+                type: 'object',
+                properties: {
+                  overwrite: { type: 'boolean', default: true, description: 'Whether to overwrite existing files' },
+                  indexAfterSave: { type: 'boolean', default: true, description: 'Automatically index after download' },
+                  maxFileSizeMB: { type: 'number', default: 10, description: 'Maximum file size in MB' },
+                },
+              },
+            },
+            required: ['url', 'filename'],
+          },
+        },
+        {
+          name: 'get_job_status',
+          description: 'Get status and progress of an async job by ID. Use to poll job completion and retrieve results.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              jobId: { type: 'string', description: 'Job ID returned from start_fetch_* operations' },
+            },
+            required: ['jobId'],
+          },
+        },
+        {
+          name: 'list_active_jobs',
+          description: 'List all currently active (running) jobs with their status and progress.',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+        },
 
       ],
     }));
@@ -265,6 +331,18 @@ class LocalSearchServer {
             break;
           case 'fetch_file':
             result = await this.handleFetchFile(args, requestId);
+            break;
+          case 'start_fetch_repo':
+            result = await this.handleStartFetchRepo(args, requestId);
+            break;
+          case 'start_fetch_file':
+            result = await this.handleStartFetchFile(args, requestId);
+            break;
+          case 'get_job_status':
+            result = await this.handleGetJobStatus(args, requestId);
+            break;
+          case 'list_active_jobs':
+            result = await this.handleListActiveJobs(args, requestId);
             break;
           default:
             log.warn(`[${requestId}] Unknown tool requested: ${name}`);
@@ -349,7 +427,7 @@ class LocalSearchServer {
       const chunks = await this.searchService.getFileDetails(
         args.filePath,
         args.chunkIndex,
-        args.contextLines || 3
+        args.contextSize || 3
       );
       log.debug(`[${requestId}] Retrieved ${chunks.length} chunks for ${args.filePath}`);
 
@@ -483,6 +561,187 @@ class LocalSearchServer {
   }
 
 
+
+  private async handleStartFetchRepo(args: any, requestId: string) {
+    try {
+      log.debug(`[${requestId}] Starting async repository fetch: ${args.repoUrl}`, {
+        branch: args.branch,
+        options: args.options
+      });
+      const result = await this.repoService.startFetchRepository(
+        args.repoUrl,
+        args.branch,
+        args.options || {}
+      );
+
+      log.info(`[${requestId}] Async repository fetch started: ${result.repoName}`, {
+        jobId: result.jobId
+      });
+
+      const message = `Started async repository fetch: ${result.repoName}\n` +
+                      `Job ID: ${result.jobId}\n` +
+                      `Use get_job_status to poll for completion.`;
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: message,
+          },
+          {
+            type: 'text',
+            text: JSON.stringify({ jobId: result.jobId, repoName: result.repoName }, null, 2),
+          },
+        ],
+      };
+    } catch (error: any) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to start repository fetch: ${error.message}`
+      );
+    }
+  }
+
+  private async handleStartFetchFile(args: any, requestId: string) {
+    try {
+      log.debug(`[${requestId}] Starting async file download: ${args.url}`, {
+        filename: args.filename,
+        docFolder: args.docFolder
+      });
+      const result = await this.fileDownloadService.startDownloadFile(
+        args.url,
+        args.filename,
+        args.docFolder,
+        args.options || {}
+      );
+
+      log.info(`[${requestId}] Async file download started: ${result.filename}`, {
+        jobId: result.jobId
+      });
+
+      const message = `Started async file download: ${result.filename}\n` +
+                      `Job ID: ${result.jobId}\n` +
+                      `Use get_job_status to poll for completion.`;
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: message,
+          },
+          {
+            type: 'text',
+            text: JSON.stringify({ jobId: result.jobId, filename: result.filename }, null, 2),
+          },
+        ],
+      };
+    } catch (error: any) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to start file download: ${error.message}`
+      );
+    }
+  }
+
+  private async handleGetJobStatus(args: any, requestId: string) {
+    try {
+      log.debug(`[${requestId}] Getting job status: ${args.jobId}`);
+      const job = this.jobManager.getJob(args.jobId);
+
+      if (!job) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Job not found: ${args.jobId}`,
+            },
+          ],
+        };
+      }
+
+      const duration = job.endTime 
+        ? job.endTime.getTime() - job.startTime.getTime()
+        : Date.now() - job.startTime.getTime();
+
+      const message = `Job Status: ${job.id}\n` +
+                      `Type: ${job.type}\n` +
+                      `Status: ${job.status}\n` +
+                      `Progress: ${job.progress}%\n` +
+                      `Duration: ${(duration / 1000).toFixed(1)}s\n` +
+                      (job.error ? `Error: ${job.error}\n` : '') +
+                      (job.status === 'completed' ? 'Job completed successfully!' : '');
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: message,
+          },
+          {
+            type: 'text',
+            text: JSON.stringify(job, null, 2),
+          },
+        ],
+      };
+    } catch (error: any) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to get job status: ${error.message}`
+      );
+    }
+  }
+
+  private async handleListActiveJobs(args: any, requestId: string) {
+    try {
+      log.debug(`[${requestId}] Listing active jobs`);
+      const activeJobs = this.jobManager.getActiveJobs();
+      const stats = this.jobManager.getStatistics();
+
+      if (activeJobs.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `No active jobs running.\n\nTotal jobs: ${stats.total}\nCompleted: ${stats.completed}\nFailed: ${stats.failed}`,
+            },
+          ],
+        };
+      }
+
+      const jobSummary = activeJobs
+        .map(job => {
+          const duration = Date.now() - job.startTime.getTime();
+          return `${job.id}: ${job.type} (${job.progress}%, ${(duration / 1000).toFixed(1)}s)`;
+        })
+        .join('\n');
+
+      const message = `Active Jobs (${activeJobs.length}):\n${jobSummary}\n\n` +
+                      `Statistics:\n` +
+                      `Total: ${stats.total}\n` +
+                      `Running: ${stats.running}\n` +
+                      `Completed: ${stats.completed}\n` +
+                      `Failed: ${stats.failed}\n` +
+                      `Avg Duration: ${(stats.averageDuration / 1000).toFixed(1)}s`;
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: message,
+          },
+          {
+            type: 'text',
+            text: JSON.stringify(activeJobs, null, 2),
+          },
+        ],
+      };
+    } catch (error: any) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to list active jobs: ${error.message}`
+      );
+    }
+  }
 
   /**
    * Initialize file watcher
