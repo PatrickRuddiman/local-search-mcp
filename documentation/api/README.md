@@ -380,4 +380,16 @@ await get_file_details({
 
 ---
 
-See the [Usage Guide](../usage/) for complete integration examples and [Architecture](../architecture/) for system design details.
+## 🔗 Related Documentation
+
+- **[Main README](../../README.md)** - Quick start and basic setup
+- **[Usage Guide](../usage/)** - Complete integration examples and workflows
+- **[Architecture Guide](../architecture/)** - System design and component interactions
+- **[Performance Guide](../performance/)** - Optimization strategies and benchmarks
+
+## 📖 Navigation Tips
+
+- **New to the project?** Start with the [Quick Start](../../README.md#-quick-start) guide
+- **Need examples?** Check the [Usage Guide](../usage/) for practical implementations
+- **Performance issues?** See the [Performance Guide](../performance/) for tuning tips
+- **Understanding the system?** Review the [Architecture Guide](../architecture/) for design details

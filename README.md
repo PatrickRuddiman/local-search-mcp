@@ -26,13 +26,19 @@ A high-performance Model Context Protocol (MCP) server that provides semantic do
 - [Configuration](#%EF%B8%8F-configuration)
 - [Usage](#-usage)
 - [MCP Tools](#-mcp-tools)
-- [Architecture](#-architecture)
-- [Performance](#%EF%B8%8F-performance)
-- [Advanced Configuration](#-advanced-configuration)
 - [Troubleshooting](#-troubleshooting)
 - [Development](#-development)
 - [Contributing](#-contributing)
 - [License](#-license)
+
+## 📚 Detailed Documentation
+
+For comprehensive technical documentation, see the [`/documentation`](./documentation/) folder:
+
+- **[API Reference](./documentation/api/)** - Complete MCP tool specifications and TypeScript interfaces
+- **[Architecture Guide](./documentation/architecture/)** - System design and component interactions
+- **[Performance Tuning](./documentation/performance/)** - Optimization guides and benchmarks
+- **[Usage Examples](./documentation/usage/)** - Detailed tutorials and integration patterns
 
 ## 🚀 Quick Start
 
@@ -327,132 +333,6 @@ const status = await get_job_status({ jobId: repoJob.jobId });
 const activeJobs = await list_active_jobs();
 ```
 
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    LOCAL SEARCH MCP SERVER                    │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐           │
-│  │   MCP       │  │   File      │  │   Repo      │           │
-│  │ Interface   ├──┤   Download  ├──┤   Service   │           │
-│  │             │  │   Service   │  │             │           │
-│  └─────────────┘  └─────────────┘  └─────────────┘           │
-│           │                     │                    │         │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐           │
-│  │   File      │  │   Text      │  │   Embed-    │           │
-│  │   Watcher   ├──┤   Chunker   ├──┤   ding      │           │
-│  │             │  │             │  │   Service   │           │
-│  └─────────────┘  └─────────────┘  └─────────────┘           │
-│                               │                              │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐           │
-│  │   Search    │  │   Vector    │  │   SQLite    │           │
-│  │   Service   ├──┤   Index     ├──┤   Storage   │           │
-│  │             │  │             │  │             │           │
-│  └─────────────┘  └─────────────┘  └─────────────┘           │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Core Components
-
-**Search Service**: Orchestrates the entire search pipeline
-**Embedding Service**: Generates vector embeddings using transformers
-**File Watcher**: Monitors filesystem changes with chokidar
-**Vector Index**: Manages similarity search with cosine similarity
-**File Processor**: Handles text extraction from various formats
-
-### Performance Optimizations
-
-- **Parallel Processing**: p-limit concurrency for multi-core scaling
-- **Batch Embeddings**: Vectorized embedding generation
-- **Streaming File I/O**: Memory-efficient large file handling
-- **Background Indexing**: Non-blocking file change processing
-
-## ⚡ Performance
-
-### Baseline Performance (8-core system)
-
-| Operation | Files | Time | Throughput |
-|-----------|-------|------|------------|
-| File Indexing | 100 docs | ~10s | ~10 files/sec |
-| Repository Processing | 1GB repo | ~30s | ~33MB/sec |
-| Search Query | 10K docs | ~50ms | Real-time |
-
-### Scaling Factors
-
-- **CPU Cores**: Linear performance scaling (4 cores = 4x speed)
-- **Memory**: 1GB additional per 10K documents indexed
-- **Storage**: ~0.1MB per document (SQLite overhead)
-
-### Configuration Optimization
-
-```typescript
-// High-performance settings
-const options = {
-  // Increase concurrency for better CPU utilization
-  maxFileProcessingConcurrency: 16,
-  maxDirectoryConcurrency: 32,
-  maxEmbeddingConcurrency: 8,
-
-  // Optimize chunk sizes
-  chunkSize: 1000,
-  overlap: 200,
-
-  // GPU acceleration (when available)
-  useGPU: true,
-  embeddingBatchSize: 32
-};
-```
-
-## 🔧 Advanced Configuration
-
-### Environment Variables
-
-```bash
-# Custom docs folder
-MCP_DOCS_FOLDER=/path/to/custom/docs
-
-# Performance tuning
-NODE_ENV=production
-
-# Debug logging
-DEBUG=local-search:*
-```
-
-### Performance Profiles
-
-#### High-Performance Mode
-```json
-{
-  "concurrency": {
-    "maxFileProcessingConcurrency": 16,
-    "maxDirectoryConcurrency": 32,
-    "maxEmbeddingConcurrency": 8
-  }
-}
-```
-
-#### Low-Memory Mode
-```json
-{
-  "concurrency": {
-    "maxFileProcessingConcurrency": 2,
-    "maxDirectoryConcurrency": 4,
-    "maxEmbeddingConcurrency": 1
-  }
-}
-```
-
-### Embedding Models
-
-The server uses optimized embedding models:
-
-- **Primary**: `Xenova/paraphrase-multilingual-minilm-l12-v2` (fast, multi-lingual)
-- **Alternative**: `Xenova/paraphrase-multilingual-mpnet-base-v2` (higher quality, slower)
-
-To change models, modify the `EmbeddingService` configuration.
 
 ## 🔍 Troubleshooting
 
@@ -600,7 +480,7 @@ Contributions welcome! Please:
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## � Acknowledgments
 
 - **@xenova/transformers**: High-performance JavaScript ML models
 - **chokidar**: Robust file system watching

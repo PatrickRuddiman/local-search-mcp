@@ -11,10 +11,23 @@ This documentation provides comprehensive technical documentation for the Local 
 
 ## 🚀 Quick Links
 
-- [Installation](../../README.md#-installation)
-- [Configuration](../../README.md#%EF%B8%8F-configuration)
-- [MCP Tools](../../README.md#-mcp-tools)
-- [Troubleshooting](../../README.md#-troubleshooting)
+- [Main README](../README.md) - Getting started and basic setup
+- [Installation Guide](../README.md#-installation) - Prerequisites and setup steps
+- [Configuration](../README.md#%EF%B8%8F-configuration) - Environment variables and MCP setup
+- [Basic Usage](../README.md#-usage) - Essential workflows and examples
+- [Troubleshooting](../README.md#-troubleshooting) - Common issues and solutions
+
+## 🔗 Cross-Reference Guide
+
+### For Developers
+- Start with [Installation](../README.md#-installation) → [Architecture Overview](./architecture/) → [API Reference](./api/)
+- Performance optimization: [Basic Config](../README.md#%EF%B8%8F-configuration) → [Performance Guide](./performance/)
+
+### For Users
+- Start with [Quick Start](../README.md#-quick-start) → [Usage Examples](./usage/) → [Troubleshooting](../README.md#-troubleshooting)
+
+### For Contributors
+- Review [Development Setup](../README.md#-development) → [Architecture Guide](./architecture/) → [API Reference](./api/)
 
 ## 🏗️ System Overview
 
