@@ -169,7 +169,7 @@ export class RepoService {
 
       // Use repomix library to process repository
       const repomixTimer = log.time('repomix-processing');
-      await runCli([repoWithBranch], outputDir, {
+      await runCli([repoWithBranch], tempDir, {
         output: outputDir,
         include,
         ignore: exclude,
