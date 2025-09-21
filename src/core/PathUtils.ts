@@ -1,10 +1,11 @@
 import path from 'path';
 import fs from 'fs';
-import { log } from './Logger.js';
 
 /**
  * Utility functions for handling MCP folder paths with environment variable support
  * and platform-specific defaults
+ * 
+ * Note: This module is intentionally logging-free to avoid circular dependencies
  */
 
 /**
@@ -15,13 +16,10 @@ export function getDataFolder(): string {
   const envDataFolder = process.env.MCP_DATA_FOLDER;
   
   if (envDataFolder) {
-    log.debug('Using MCP_DATA_FOLDER from environment', { path: envDataFolder });
     return envDataFolder;
   }
 
-  const defaultPath = getDefaultDataFolder();
-  log.debug('Using default data folder', { path: defaultPath });
-  return defaultPath;
+  return getDefaultDataFolder();
 }
 
 /**
@@ -32,13 +30,10 @@ export function getDocsFolder(): string {
   const envDocsFolder = process.env.MCP_DOCS_FOLDER;
   
   if (envDocsFolder) {
-    log.debug('Using MCP_DOCS_FOLDER from environment', { path: envDocsFolder });
     return envDocsFolder;
   }
 
-  const defaultPath = getDefaultDocsFolder();
-  log.debug('Using default docs folder', { path: defaultPath });
-  return defaultPath;
+  return getDefaultDocsFolder();
 }
 
 /**
@@ -75,12 +70,10 @@ function getDefaultDocsFolder(): string {
 /**
  * Ensure a directory exists, creating it recursively if needed
  * @param dirPath Directory path to create
- * @param description Description for logging
+ * @param description Description for debugging (not used in this logging-free version)
  */
 export async function ensureDirectoryExists(dirPath: string, description?: string): Promise<void> {
   try {
-    log.debug(`Ensuring directory exists: ${description || dirPath}`, { path: dirPath });
-    
     await fs.promises.mkdir(dirPath, { recursive: true });
     
     // Verify the directory was created and is accessible
@@ -88,10 +81,7 @@ export async function ensureDirectoryExists(dirPath: string, description?: strin
     if (!stats.isDirectory()) {
       throw new Error(`Path exists but is not a directory: ${dirPath}`);
     }
-    
-    log.debug(`Directory ready: ${description || dirPath}`, { path: dirPath });
   } catch (error: any) {
-    log.error(`Failed to create directory: ${description || dirPath}`, error, { path: dirPath });
     throw new Error(`Failed to create directory ${dirPath}: ${error.message}`);
   }
 }
@@ -100,11 +90,7 @@ export async function ensureDirectoryExists(dirPath: string, description?: strin
  * Initialize all required MCP directories
  */
 export async function initializeMcpDirectories(): Promise<void> {
-  const timer = log.time('initialize-mcp-directories');
-  
   try {
-    log.info('Initializing MCP directory structure');
-    
     const dataFolder = getDataFolder();
     const docsFolder = getDocsFolder();
     
@@ -119,19 +105,7 @@ export async function initializeMcpDirectories(): Promise<void> {
     await ensureDirectoryExists(repositoriesFolder, 'Repositories folder');
     await ensureDirectoryExists(fetchedFolder, 'Fetched files folder');
     
-    timer();
-    log.info('MCP directory structure initialized successfully', {
-      dataFolder,
-      docsFolder,
-      subdirectories: {
-        repositories: repositoriesFolder,
-        fetched: fetchedFolder
-      }
-    });
-    
   } catch (error: any) {
-    timer();
-    log.error('Failed to initialize MCP directory structure', error);
     throw error;
   }
 }
