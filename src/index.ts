@@ -266,15 +266,24 @@ class LocalSearchServer {
         args.query,
         args.options || {}
       );
-      
+
+      // Check for active indexing jobs
+      const activeJobs = this.jobManager.getActiveJobs();
+
       const summary = `Found ${result.totalResults} results for "${result.query}" in ${result.searchTime}ms`;
+
+      let warningMessage = '';
+      if (activeJobs.length > 0) {
+        const jobDetails = activeJobs.map(job => `${job.type}: ${job.progress}%`).join(', ');
+        warningMessage = `\n\nNote: Index is currently incomplete - ${activeJobs.length} active jobs running (${jobDetails}). Results may be incomplete. Poll job status for completion.`;
+      }
 
       if (result.totalResults === 0) {
         return {
           content: [
             {
               type: 'text',
-              text: `${summary}\n\nNo matching documents found.`,
+              text: `${summary}${warningMessage}\n\nNo matching documents found.`,
             },
           ],
         };
@@ -291,7 +300,7 @@ class LocalSearchServer {
         content: [
           {
             type: 'text',
-            text: `${summary}\n\nTop Results:\n${resultText}`,
+            text: `${summary}${warningMessage}\n\nTop Results:\n${resultText}`,
           },
           {
             type: 'text',
