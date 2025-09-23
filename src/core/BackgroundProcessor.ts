@@ -8,6 +8,8 @@ import { getMcpPaths, ensureDirectoryExists, extractRepoName } from './PathUtils
 import { runCli } from 'repomix';
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import {
   FileProcessingError,
   EmbeddingError,
@@ -252,30 +254,116 @@ export class BackgroundProcessor {
 
     const include = includePatterns.join(',');
     const exclude = excludePatterns.join(',');
-    
-    this.jobManager.updateProgress(jobId, 20, 'Processing repository with repomix...');
-    
+
     const repoName = extractRepoName(repoUrl);
     const outputFile = path.join(outputDir, `${repoName}.md`);
-    
-    await runCli(['.'], outputDir, {
-      remote: repoUrl,
-      remoteBranch: branch,
-      output: outputFile,
-      include,
-      ignore: exclude,
-      style: options.outputStyle || 'markdown',
-      removeComments: options.removeComments || false,
-      removeEmptyLines: false,
-      outputShowLineNumbers: options.showLineNumbers || true,
-      topFilesLen: 0,
-      compress: false,
-      quiet: false,
-      verbose: false
-    });
-    
-    this.jobManager.updateProgress(jobId, 30, 'Repository download completed');
-    return outputFile;
+
+    // Try repomix remote approach first
+    try {
+      this.jobManager.updateProgress(jobId, 20, 'Processing repository with repomix...');
+
+      await runCli(['.'], outputDir, {
+        remote: repoUrl,
+        remoteBranch: branch,
+        output: outputFile,
+        include,
+        ignore: exclude,
+        style: options.outputStyle || 'markdown',
+        removeComments: options.removeComments || false,
+        removeEmptyLines: false,
+        outputShowLineNumbers: options.showLineNumbers || true,
+        topFilesLen: 0,
+        compress: false,
+        quiet: false,
+        verbose: false
+      });
+
+      this.jobManager.updateProgress(jobId, 30, 'Repository download completed');
+      return outputFile;
+    } catch (error: any) {
+      log.debug('Repomix remote download failed, trying fallback clone', { error: error.message, repoUrl });
+
+      // For Azure DevOps and other private repos, fallback to manual clone if access error
+      const isAccessError = error.message.includes('Authentication failed') ||
+                           error.message.includes('403') ||
+                           error.message.includes('401') ||
+                           error.message.includes('404') ||
+                           error.message.includes('Invalid remote repository URL') ||
+                           error.message.includes('credential') ||
+                           error.message.includes('password') ||
+                           error.message.includes('Permission denied');
+
+      if (isAccessError) {
+        log.info('Detected possible authentication/access error, falling back to manual Git clone');
+        return await this.downloadRepoWithFallback(jobId, repoUrl, branch, outputDir, options, include, exclude, repoName, outputFile);
+      }
+
+      // Re-throw if not an auth-related error
+      throw error;
+    }
+  }
+
+  private async downloadRepoWithFallback(
+    jobId: string,
+    repoUrl: string,
+    branch: string | undefined,
+    outputDir: string,
+    options: RepoDownloadOptions,
+    include: string,
+    exclude: string,
+    repoName: string,
+    outputFile: string
+  ): Promise<string> {
+    try {
+      this.jobManager.updateProgress(jobId, 18, 'Access error, falling back to manual Git clone...');
+
+      const mcpPaths = getMcpPaths();
+      const tempCloneDir = path.join(mcpPaths.temp, `clone_${Date.now()}_${repoName}`);
+      await ensureDirectoryExists(tempCloneDir, 'Temp clone directory');
+
+      this.jobManager.updateProgress(jobId, 22, 'Cloning repository manually...');
+
+      // Clone repository using Git (relies on user's configured authentication)
+      const execAsync = promisify(exec);
+      const cloneCommand = `git clone ${branch ? `-b ${branch} ` : ''}"${repoUrl}" "${tempCloneDir}"`;
+      await execAsync(cloneCommand);
+
+      this.jobManager.updateProgress(jobId, 26, 'Repository cloned, processing with repomix...');
+
+      // Run repomix on the local cloned directory
+      await runCli([tempCloneDir], outputDir, {
+        output: outputFile,
+        include,
+        ignore: exclude,
+        style: options.outputStyle || 'markdown',
+        removeComments: options.removeComments || false,
+        removeEmptyLines: false,
+        outputShowLineNumbers: options.showLineNumbers || true,
+        topFilesLen: 0,
+        compress: false,
+        quiet: false,
+        verbose: false
+      });
+
+      this.jobManager.updateProgress(jobId, 30, 'Repository download completed');
+
+      // Cleanup temp directory
+      try {
+        await fs.rm(tempCloneDir, { recursive: true, force: true });
+        log.debug('Cleaned up temp clone directory', { tempCloneDir });
+      } catch (cleanupError) {
+        log.warn('Failed to cleanup temp clone directory', { tempCloneDir, cleanupError });
+      }
+
+      return outputFile;
+    } catch (error: any) {
+      log.error('Manual clone fallback failed', error, {
+        repoUrl,
+        branch,
+        tempDir: path.join(getMcpPaths().temp, `clone_*.${repoName}`)
+      });
+      throw error;
+    }
   }
 
   private async downloadFile(
