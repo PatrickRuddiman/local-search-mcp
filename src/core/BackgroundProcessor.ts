@@ -4,7 +4,7 @@ import { EmbeddingService } from './EmbeddingService.js';
 import { VectorIndex } from './VectorIndex.js';
 import { JobManager } from './JobManager.js';
 import { log } from './Logger.js';
-import { getMcpPaths, ensureDirectoryExists } from './PathUtils.js';
+import { getMcpPaths, ensureDirectoryExists, extractRepoName } from './PathUtils.js';
 import { runCli } from 'repomix';
 import { promises as fs } from 'fs';
 import * as path from 'path';
@@ -54,7 +54,7 @@ export class BackgroundProcessor {
       // Step 1: Download repository (0-30%)
       this.jobManager.updateProgress(jobId, 5, 'Initializing repository download...');
       
-      const repoName = this.extractRepoName(repoUrl);
+      const repoName = extractRepoName(repoUrl);
       const mcpPaths = getMcpPaths();
       const outputDir = path.join(mcpPaths.repositories, repoName);
       
@@ -255,7 +255,7 @@ export class BackgroundProcessor {
     
     this.jobManager.updateProgress(jobId, 20, 'Processing repository with repomix...');
     
-    const repoName = this.extractRepoName(repoUrl);
+    const repoName = extractRepoName(repoUrl);
     const outputFile = path.join(outputDir, `${repoName}.md`);
     
     await runCli(['.'], outputDir, {
@@ -362,22 +362,7 @@ export class BackgroundProcessor {
     });
   }
 
-  private extractRepoName(repoUrl: string): string {
-    try {
-      const url = repoUrl.replace(/\.git$/, '');
-      const parts = url.split('/');
 
-      if (parts.length >= 2) {
-        const owner = parts[parts.length - 2];
-        const repo = parts[parts.length - 1];
-        return `${owner}_${repo}`;
-      }
-
-      throw new Error('Invalid repo URL format');
-    } catch (error) {
-      return `unknown_repo_${Date.now()}`;
-    }
-  }
 
   private sanitizeFilename(filename: string): string {
     return filename

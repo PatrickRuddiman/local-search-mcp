@@ -12,7 +12,7 @@ import { SearchService } from './core/SearchService.js';
 import { BackgroundProcessor } from './core/BackgroundProcessor.js';
 import { JobManager } from './core/JobManager.js';
 import { logger, log } from './core/Logger.js';
-import { initializeMcpDirectories } from './core/PathUtils.js';
+import { initializeMcpDirectories, extractRepoName } from './core/PathUtils.js';
 
 class LocalSearchServer {
   private server: Server;
@@ -140,11 +140,11 @@ class LocalSearchServer {
         },
         {
           name: 'fetch_repo',
-          description: 'Clone a GitHub repository using repomix, convert to markdown, and add to searchable index. Returns job ID for progress tracking.',
+          description: 'Clone a Git repository (GitHub, Azure DevOps, etc.) using repomix, convert to markdown, and add to searchable index. Returns job ID for progress tracking.',
           inputSchema: {
             type: 'object',
             properties: {
-              repoUrl: { type: 'string', description: 'GitHub repository URL' },
+              repoUrl: { type: 'string', description: 'Git repository URL' },
               branch: { type: 'string', description: 'Optional branch/tag/commit, defaults to main/master' },
               options: {
                 type: 'object',
@@ -418,7 +418,7 @@ class LocalSearchServer {
         });
       }, 0);
 
-      const repoName = this.extractRepoName(args.repoUrl);
+      const repoName = extractRepoName(args.repoUrl);
       const message = `Started async repository fetch: ${repoName}\nJob ID: ${jobId}\nUse get_job_status to poll for completion.`;
 
       return {
@@ -620,26 +620,6 @@ class LocalSearchServer {
         ErrorCode.InternalError,
         `Failed to list active jobs: ${error.message}`
       );
-    }
-  }
-
-  /**
-   * Extract repository name from URL
-   */
-  private extractRepoName(repoUrl: string): string {
-    try {
-      const url = repoUrl.replace(/\.git$/, '');
-      const parts = url.split('/');
-
-      if (parts.length >= 2) {
-        const owner = parts[parts.length - 2];
-        const repo = parts[parts.length - 1];
-        return `${owner}_${repo}`;
-      }
-
-      throw new Error('Invalid repo URL format');
-    } catch (error) {
-      return `unknown_repo_${Date.now()}`;
     }
   }
 
