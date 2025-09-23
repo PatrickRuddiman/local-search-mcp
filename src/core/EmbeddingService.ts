@@ -1,7 +1,46 @@
 import * as use from '@tensorflow-models/universal-sentence-encoder';
-import * as tf from '@tensorflow/tfjs-node';
 import { DocumentChunk, EmbeddingError } from '../types/index.js';
 import { log } from './Logger.js';
+
+// Dynamic TensorFlow import with platform detection
+let tf: any;
+let tfBackend: string;
+
+/**
+ * Initialize TensorFlow with fallback strategy
+ * - Always try tfjs-node first for optimal performance (GPU support when available)
+ * - Fall back to tfjs with CPU backend if tfjs-node fails
+ */
+async function initializeTensorFlow(): Promise<void> {
+  const platform = process.platform;
+
+  try {
+    log.info('Attempting TensorFlow.js Node backend initialization (optimal)', { platform });
+
+    try {
+      tf = await import('@tensorflow/tfjs-node');
+      tfBackend = 'tensorflow-node';
+      log.info('TensorFlow.js Node backend initialized successfully');
+    } catch (nodeError: any) {
+      log.warn('tfjs-node initialization failed, falling back to CPU backend', {
+        platform,
+        error: nodeError.message
+      });
+
+      tf = await import('@tensorflow/tfjs');
+      await tf.setBackend('cpu');
+      tfBackend = 'cpu';
+      log.info('TensorFlow.js CPU backend initialized successfully (fallback)');
+    }
+
+  } catch (error: any) {
+    log.error('Failed to initialize TensorFlow backend', error);
+    throw new EmbeddingError(`TensorFlow initialization failed: ${error.message}`);
+  }
+}
+
+// Initialize TensorFlow at module load time
+const tfInitPromise = initializeTensorFlow();
 
 export interface EmbeddingConfig {
   modelName?: string;  // For future use if switching models
@@ -84,10 +123,13 @@ export class EmbeddingService {
    * Singleton model loading implementation
    */
   private async loadModelSingleton(): Promise<use.UniversalSentenceEncoder> {
+    // Ensure TensorFlow is initialized first
+    await tfInitPromise;
+
     const timer = log.time('singleton-embedding-model-init');
     log.info('Starting singleton Universal Sentence Encoder model loading', {
       modelName: this.config.modelName,
-      tfBackend: tf.getBackend()
+      tfBackend
     });
 
     try {
@@ -95,7 +137,8 @@ export class EmbeddingService {
 
       log.info('Singleton Universal Sentence Encoder loaded successfully', {
         dimensions: 512,
-        gpuEnabled: tf.getBackend() === 'tensorflow'
+        backend: tfBackend,
+        gpuEnabled: tfBackend === 'tensorflow-node'
       });
 
       timer();
@@ -303,9 +346,10 @@ export class EmbeddingService {
    */
   static async isGPUAvailable(): Promise<boolean> {
     try {
-      // TensorFlow.js will automatically use GPU if available
-      // For Node.js with tfjs-node, GPU support depends on CUDA installation
-      return tf.getBackend() === 'tensorflow'; // GPU backend
+      // Ensure TensorFlow is initialized
+      await tfInitPromise;
+      // tfjs-node provides actual GPU support, tfjs only provides CPU
+      return tfBackend === 'tensorflow-node';
     } catch {
       return false;
     }
@@ -319,7 +363,7 @@ export class EmbeddingService {
     return {
       model: this.config.modelName,
       dimensions: 512, // Universal Sentence Encoder dimension
-      gpuEnabled: tf.getBackend() === 'tensorflow'
+      gpuEnabled: tfBackend === 'tensorflow-node'
     };
   }
 
