@@ -4,8 +4,14 @@
   "description": "MCP server for indexing, chunking, and serving local files for AI context",
   "main": "build/index.js",
   "type": "module",
+  "files": [
+    "build",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
+    "prepare": "npm run build",
     "start": "node build/index.js",
     "dev": "tsx watch src/index.ts",
     "clean": "npx rimraf ./build && npx rimraf ./node_modules"
