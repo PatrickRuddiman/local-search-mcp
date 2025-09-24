@@ -1,0 +1,58 @@
+name: Publish to npm
+
+on:
+  workflow_run:
+    workflows:
+      - Build
+    types:
+      - completed
+
+jobs:
+  publish:
+    name: Build and publish package
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org/
+
+      - name: Download package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-package
+          run-id: ${{ github.event.workflow_run.id }}
+          path: ./dist
+
+      - name: Inspect package contents
+        run: ls -R dist
+
+      - name: Show release version
+        run: |
+          if [ -f dist/version.txt ]; then
+            echo "Publishing version $(cat dist/version.txt)"
+          else
+            echo "version.txt not found in artifact" >&2
+            exit 1
+          fi
+
+      - name: Publish to npm
+        run: |
+          if [ ! -f dist/tarball.txt ]; then
+            echo "tarball.txt not found in artifact" >&2
+            exit 1
+          fi
+          tarball_name=$(cat dist/tarball.txt)
+          tarball_path="dist/$tarball_name"
+          if [ ! -f "$tarball_path" ]; then
+            echo "Unable to locate package tarball $tarball_path" >&2
+            exit 1
+          fi
+          npm publish "$tarball_path" --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
