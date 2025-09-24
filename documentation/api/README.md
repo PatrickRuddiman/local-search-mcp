@@ -396,7 +396,7 @@ await fetch_repo({
 });
 ```
 
-### File Download with Options
+### File Download with Configuration Options
 
 ```typescript
 await fetch_file({
