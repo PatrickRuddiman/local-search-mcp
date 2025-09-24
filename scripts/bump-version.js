@@ -25,14 +25,15 @@ const compareSemver = (a, b) => {
 
 const resolveNextVersion = (localVersion, publishedVersion) => {
   const localSemver = parseSemver(localVersion);
-  let baseSemver = localSemver;
+  const candidates = [localSemver];
 
   if (publishedVersion) {
-    const publishedSemver = parseSemver(publishedVersion);
-    if (compareSemver(publishedSemver, localSemver) > 0) {
-      baseSemver = publishedSemver;
-    }
+    candidates.push(parseSemver(publishedVersion));
   }
+
+  const baseSemver = candidates.reduce((latest, candidate) =>
+    compareSemver(candidate, latest) > 0 ? candidate : latest
+  );
 
   const nextSemver = { ...baseSemver, patch: baseSemver.patch + 1 };
   return `${nextSemver.major}.${nextSemver.minor}.${nextSemver.patch}`;
