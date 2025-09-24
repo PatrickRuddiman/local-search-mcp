@@ -33,7 +33,7 @@ jobs:
         id: published
         run: |
           set +e
-          published=$(npm view "local-search-mcp" version 2>/dev/null)
+          published=$(npm view "$(npm pkg get name | tr -d '"')" version 2>/dev/null)
           status=$?
           set -e
           if [ $status -ne 0 ]; then
