@@ -26,7 +26,6 @@ interface FileDownloadOptions {
 interface RepoDownloadOptions {
   includePatterns?: string[];
   excludePatterns?: string[];
-  maxFiles?: number;
   outputStyle?: 'markdown';
   removeComments?: boolean;
   showLineNumbers?: boolean;

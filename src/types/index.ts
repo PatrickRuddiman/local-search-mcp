@@ -51,7 +51,6 @@ export interface FileDetailsOptions {
 export interface RepoOptions {
   repoUrl: string;
   branch?: string;
-  maxFiles?: number;
   includePatterns?: string[];
   excludePatterns?: string[];
   outputStyle?: 'markdown' | 'plain';

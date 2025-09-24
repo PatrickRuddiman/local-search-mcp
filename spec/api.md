@@ -62,7 +62,6 @@
   "options": {
     "includePatterns": "[\"*.txt\", \"*.md\", \"*.json\", \"*.rst\", \"*.yaml\", \"*.yml\"]",
     "excludePatterns": "[\"**/node_modules/**\", \"**/.git/**\"]",
-    "maxFiles": 1000,
     "outputStyle": "markdown (fixed)",
     "removeComments": false,
     "showLineNumbers": true

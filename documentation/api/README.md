@@ -122,7 +122,6 @@ Start an async repository fetch operation. Returns immediately with a job ID for
 | `branch` | `string?` | ❌ | `main` | Branch, tag, or commit hash |
 | `options.includePatterns` | `string[]` | ❌ | `['*.md', '*.txt', '*.json', '*.rst']` | File patterns to include |
 | `options.excludePatterns` | `string[]` | ❌ | Various | File patterns to exclude |
-| `options.maxFiles` | `number` | ❌ | `1000` | Maximum files to process |
 | `options.outputStyle` | `'markdown'` | ❌ | `'markdown'` | Output format (fixed) |
 | `options.removeComments` | `boolean` | ❌ | `false` | Strip source code comments |
 | `options.showLineNumbers` | `boolean` | ❌ | `true` | Include line numbers in output |
@@ -342,7 +341,6 @@ export interface SearchOptions {
 export interface RepoOptions {
   repoUrl: string;              // GitHub repository URL
   branch?: string;              // Branch/tag/commit
-  maxFiles?: number;            // Maximum files to process
   includePatterns?: string[];   // File inclusion patterns
   excludePatterns?: string[];   // File exclusion patterns
   outputStyle?: 'markdown';     // Output format
@@ -391,7 +389,6 @@ await search_documents({
 await fetch_repo({
   repoUrl: "https://github.com/microsoft/vscode-docs",
   options: {
-    maxFiles: 1000,
     includePatterns: ["*.md", "*.txt"],
     excludePatterns: ["**/node_modules/**"]
   }
@@ -429,7 +426,6 @@ await get_file_details({
 const repoJob = await fetch_repo({
   repoUrl: "https://github.com/large/repository",
   options: {
-    maxFiles: 2000,
     includePatterns: ["*.md", "*.txt", "*.json"]
   }
 });

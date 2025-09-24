@@ -151,7 +151,6 @@ class LocalSearchServer {
                 properties: {
                   includePatterns: { type: 'array', items: { type: 'string' }, default: ['**/*.md', '**/*.mdx', '**/*.txt', '**/*.json', '**/*.rst', '**/*.yml', '**/*.yaml'], description: 'File patterns to include' },
                   excludePatterns: { type: 'array', items: { type: 'string' }, default: ['**/node_modules/**'], description: 'File patterns to exclude' },
-                  maxFiles: { type: 'number', default: 1000, description: 'Maximum files to process' },
                   outputStyle: { type: 'string', enum: ['markdown'], default: 'markdown', description: 'Output format (fixed to markdown)' },
                   removeComments: { type: 'boolean', default: false, description: 'Remove comments from code files' },
                   showLineNumbers: { type: 'boolean', default: true, description: 'Show line numbers in output' },
