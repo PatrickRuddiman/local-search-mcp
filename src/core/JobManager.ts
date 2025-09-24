@@ -56,7 +56,7 @@ export class JobManager {
 
     this.jobs.set(id, job);
     log.info(`Job created: ${id}`, { type, metadata });
-    
+
     return id;
   }
 
@@ -137,7 +137,7 @@ export class JobManager {
           resolve(cached);
           return;
         }
-        
+
         // Fallback to main job store
         resolve(this.jobs.get(id));
       }, 0);
@@ -153,7 +153,7 @@ export class JobManager {
     if (cached) {
       return cached;
     }
-    
+
     // Quick lookup without iteration
     return this.jobs.get(id);
   }
@@ -252,7 +252,7 @@ export class JobManager {
   } {
     const jobs = Array.from(this.jobs.values());
     const completed = jobs.filter(j => j.status === 'completed');
-    const averageDuration = completed.length > 0 
+    const averageDuration = completed.length > 0
       ? completed.reduce((sum, j) => sum + (j.endTime!.getTime() - j.startTime.getTime()), 0) / completed.length
       : 0;
 

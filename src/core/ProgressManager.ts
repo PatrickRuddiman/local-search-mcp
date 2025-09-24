@@ -45,17 +45,17 @@ export class ProgressManager extends EventEmitter {
     if (!this.subscriptions.has(jobId)) {
       this.subscriptions.set(jobId, new Set());
     }
-    
+
     this.subscriptions.get(jobId)!.add(callback);
-    
+
     // Send cached progress if available (immediate response)
     const cachedProgress = this.progressCache.get(jobId);
     if (cachedProgress) {
       setImmediate(() => callback(cachedProgress));
     }
-    
+
     log.debug('Progress subscription added', { jobId });
-    
+
     // Return unsubscribe function
     return () => {
       const subscribers = this.subscriptions.get(jobId);
@@ -107,9 +107,9 @@ export class ProgressManager extends EventEmitter {
       this.emit(`progress:${jobId}`, event);
     });
 
-    log.debug('Progress updated', { 
-      jobId, 
-      progress, 
+    log.debug('Progress updated', {
+      jobId,
+      progress,
       message,
       subscriberCount: this.subscriptions.get(jobId)?.size || 0
     });
@@ -122,7 +122,7 @@ export class ProgressManager extends EventEmitter {
    */
   completeJob(jobId: string, result?: any): void {
     this.updateProgress(jobId, 100, 'Completed', { result });
-    
+
     // Clean up after a delay to allow final notifications
     setTimeout(() => {
       this.subscriptions.delete(jobId);
@@ -139,7 +139,7 @@ export class ProgressManager extends EventEmitter {
   failJob(jobId: string, error: string | Error): void {
     const errorMessage = error instanceof Error ? error.message : error;
     this.updateProgress(jobId, 0, `Failed: ${errorMessage}`, { error: errorMessage });
-    
+
     // Clean up after a delay
     setTimeout(() => {
       this.subscriptions.delete(jobId);

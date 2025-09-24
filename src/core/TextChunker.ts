@@ -179,12 +179,12 @@ export class TextChunker {
   private async splitBySentencesAsync(text: string): Promise<string[]> {
     // For sentence splitting, yield periodically for very large texts
     const sentences = text.split(/[.!?]+\s+/);
-    
+
     if (sentences.length > 10000) {
       log.debug(`Processing ${sentences.length} sentences with yielding`);
       await new Promise(resolve => setImmediate(resolve));
     }
-    
+
     return sentences.filter(s => s.trim().length > 0);
   }
 
@@ -194,12 +194,12 @@ export class TextChunker {
   private async splitByParagraphsAsync(text: string): Promise<string[]> {
     // For paragraph splitting, yield periodically for very large texts
     const paragraphs = text.split(/\n\s*\n/);
-    
+
     if (paragraphs.length > 5000) {
       log.debug(`Processing ${paragraphs.length} paragraphs with yielding`);
       await new Promise(resolve => setImmediate(resolve));
     }
-    
+
     return paragraphs.filter(p => p.trim().length > 0);
   }
 

@@ -55,20 +55,20 @@ export class BackgroundProcessor {
     try {
       // Step 1: Download repository (0-30%)
       this.jobManager.updateProgress(jobId, 5, 'Initializing repository download...');
-      
+
       const repoName = extractRepoName(repoUrl);
       const mcpPaths = getMcpPaths();
       const outputDir = path.join(mcpPaths.repositories, repoName);
-      
+
       this.jobManager.updateProgress(jobId, 10, 'Creating output directory...');
       await ensureDirectoryExists(outputDir, 'Repository output directory');
-      
+
       this.jobManager.updateProgress(jobId, 15, 'Downloading repository with repomix...');
       const filePath = await this.downloadRepo(jobId, repoUrl, branch, outputDir, options);
-      
+
       // Step 2: Process file (30-100%)
       await this.processFile(jobId, filePath, 30, 70);
-      
+
       this.jobManager.completeJob(jobId, {
         success: true,
         repoName,
@@ -95,20 +95,20 @@ export class BackgroundProcessor {
     try {
       // Step 1: Download file (0-40%)
       this.jobManager.updateProgress(jobId, 5, 'Initializing file download...');
-      
+
       const targetFolder = docFolder || getMcpPaths().fetched;
       await ensureDirectoryExists(targetFolder, 'File download directory');
-      
+
       this.jobManager.updateProgress(jobId, 10, 'Starting file download...');
       const filePath = await this.downloadFile(jobId, url, filename, targetFolder, options);
-      
+
       // Step 2: Process file (40-100%) 
       if (options.indexAfterSave !== false) {
         await this.processFile(jobId, filePath, 40, 60, options.maxFileSizeMB);
       } else {
         this.jobManager.updateProgress(jobId, 100, 'File download completed (indexing skipped)');
       }
-      
+
       this.jobManager.completeJob(jobId, {
         success: true,
         filePath,
@@ -122,9 +122,9 @@ export class BackgroundProcessor {
   }
 
   private async processFile(
-    jobId: string, 
-    filePath: string, 
-    startProgress: number, 
+    jobId: string,
+    filePath: string,
+    startProgress: number,
     progressRange: number,
     maxFileSizeMB?: number
   ): Promise<void> {
@@ -136,11 +136,11 @@ export class BackgroundProcessor {
     try {
       this.jobManager.updateProgress(jobId, startProgress, 'Reading file content...');
       const text = await fileProcessor.extractText(filePath);
-      
+
       if (text.trim().length === 0) {
         throw new FileProcessingError(`File ${filePath} is empty`);
       }
-      
+
       this.jobManager.updateProgress(jobId, startProgress + (progressRange * 0.1), 'Chunking text with event loop yielding...');
       const chunks = await textChunker.chunkText(text, filePath, {
         chunkSize: 1000,
@@ -151,7 +151,7 @@ export class BackgroundProcessor {
       if (chunks.length === 0) {
         throw new FileProcessingError(`No chunks created for file ${filePath}`);
       }
-      
+
       this.jobManager.updateProgress(jobId, startProgress + (progressRange * 0.2), `Created ${chunks.length} chunks with yielding`);
 
       this.jobManager.updateProgress(jobId, startProgress + (progressRange * 0.2), 'Generating embeddings...');
@@ -159,11 +159,11 @@ export class BackgroundProcessor {
 
       this.jobManager.updateProgress(jobId, startProgress + (progressRange * 0.8), 'Storing chunks in database...');
       const storedCount = await vectorIndex.storeChunks(embeddedChunks);
-      
+
       if (storedCount === 0) {
         throw new StorageError(`Failed to store chunks for ${filePath}`);
       }
-      
+
       this.jobManager.updateProgress(jobId, startProgress + progressRange, `Indexed ${storedCount} chunks successfully`);
       vectorIndex.close();
 
@@ -285,13 +285,13 @@ export class BackgroundProcessor {
 
       // For Azure DevOps and other private repos, fallback to manual clone if access error
       const isAccessError = error.message.includes('Authentication failed') ||
-                           error.message.includes('403') ||
-                           error.message.includes('401') ||
-                           error.message.includes('404') ||
-                           error.message.includes('Invalid remote repository URL') ||
-                           error.message.includes('credential') ||
-                           error.message.includes('password') ||
-                           error.message.includes('Permission denied');
+        error.message.includes('403') ||
+        error.message.includes('401') ||
+        error.message.includes('404') ||
+        error.message.includes('Invalid remote repository URL') ||
+        error.message.includes('credential') ||
+        error.message.includes('password') ||
+        error.message.includes('Permission denied');
 
       if (isAccessError) {
         log.info('Detected possible authentication/access error, falling back to manual Git clone');
@@ -375,11 +375,11 @@ export class BackgroundProcessor {
   ): Promise<string> {
     const https = await import('https');
     const http = await import('http');
-    
+
     return new Promise((resolve, reject) => {
       const protocol = url.startsWith('https:') ? 'https' : 'http';
       const maxSize = (options.maxFileSizeMB || 1024) * 1024 * 1024;
-      
+
       const request = protocol === 'https'
         ? https.get(url, { timeout: 30000 })
         : http.get(url, { timeout: 30000 });
@@ -405,7 +405,7 @@ export class BackgroundProcessor {
         }
 
         totalBytes = parseInt(res.headers['content-length'] || '0');
-        
+
         res.on('data', (chunk: any) => {
           data += chunk;
           downloadedBytes += chunk.length;
@@ -413,8 +413,8 @@ export class BackgroundProcessor {
           if (totalBytes > 0) {
             const downloadProgress = (downloadedBytes / totalBytes) * 30;
             this.jobManager.updateProgress(
-              jobId, 
-              10 + downloadProgress, 
+              jobId,
+              10 + downloadProgress,
               `Downloaded ${(downloadedBytes / 1024).toFixed(1)}KB of ${(totalBytes / 1024).toFixed(1)}KB`
             );
           }
@@ -429,12 +429,12 @@ export class BackgroundProcessor {
           try {
             const safeFilename = this.sanitizeFilename(filename);
             const filePath = path.join(targetFolder, safeFilename);
-            
+
             const exists = await this.fileExists(filePath);
             if (exists && !options.overwrite) {
               throw new Error(`File ${filePath} already exists and overwrite=false`);
             }
-            
+
             await fs.writeFile(filePath, data, 'utf-8');
             this.jobManager.updateProgress(jobId, 40, 'File download completed');
             resolve(filePath);

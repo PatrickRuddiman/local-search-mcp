@@ -52,7 +52,7 @@ export class EmbeddingService {
   private static modelPromise?: Promise<use.UniversalSentenceEncoder>;
   private static model?: use.UniversalSentenceEncoder;
   private static isLoading = false;
-  
+
   private config: Required<EmbeddingConfig>;
   private initialized = false;
 
@@ -78,10 +78,10 @@ export class EmbeddingService {
     if (!EmbeddingService.instance) {
       EmbeddingService.instance = new EmbeddingService(config);
     }
-    
+
     // Ensure model is loaded (singleton pattern prevents race conditions)
     await EmbeddingService.instance.ensureModelLoaded();
-    
+
     return EmbeddingService.instance;
   }
 
@@ -105,7 +105,7 @@ export class EmbeddingService {
     // This thread takes responsibility for loading
     EmbeddingService.isLoading = true;
     EmbeddingService.modelPromise = this.loadModelSingleton();
-    
+
     try {
       EmbeddingService.model = await EmbeddingService.modelPromise;
       this.initialized = true;

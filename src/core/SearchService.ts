@@ -22,7 +22,7 @@ export class SearchService {
       embeddingConfig: {},
       ...config
     };
-    
+
     this.embeddingService = null; // Will be initialized async
     this.vectorIndex = new VectorIndex();
 
@@ -81,7 +81,7 @@ export class SearchService {
         nextSteps.push(
           `For full content of top result: get_file_details({filePath: "${topResult.filePath}", chunkIndex: ${topResult.chunkIndex}})`
         );
-        
+
         if (optimizedResults.length > 1) {
           const uniqueFiles = [...new Set(optimizedResults.slice(0, 3).map(r => r.filePath))];
           uniqueFiles.forEach(filePath => {
@@ -144,7 +144,7 @@ export class SearchService {
       if (chunkIndex !== undefined) {
         // Get specific chunk with surrounding context
         const allChunks = await this.vectorIndex.getFileChunks(filePath);
-        
+
         if (allChunks.length === 0) {
           log.debug('No chunks found for file', { filePath });
           return [];
@@ -152,7 +152,7 @@ export class SearchService {
 
         // Find the target chunk
         const targetChunkIndex = allChunks.findIndex(chunk => chunk.chunkIndex === chunkIndex);
-        
+
         if (targetChunkIndex === -1) {
           log.debug('Target chunk not found', { filePath, chunkIndex });
           return [];
@@ -161,10 +161,10 @@ export class SearchService {
         // Calculate context window
         const startIndex = Math.max(0, targetChunkIndex - contextSize);
         const endIndex = Math.min(allChunks.length - 1, targetChunkIndex + contextSize);
-        
+
         // Get context chunks
         const contextChunks = allChunks.slice(startIndex, endIndex + 1);
-        
+
         log.debug('Retrieved file details with context', {
           filePath,
           chunkIndex,
@@ -172,7 +172,7 @@ export class SearchService {
           returnedChunks: contextChunks.length,
           contextWindow: [startIndex, endIndex]
         });
-        
+
         // Remove embeddings and return optimized chunks
         return contextChunks.map(chunk => {
           const { embedding, ...chunkWithoutEmbedding } = chunk;
@@ -181,12 +181,12 @@ export class SearchService {
       } else {
         // Get all chunks for the file (without embeddings)
         const chunks = await this.vectorIndex.getFileChunks(filePath);
-        
+
         log.debug('Retrieved all file details', {
           filePath,
           totalChunks: chunks.length
         });
-        
+
         return chunks.map(chunk => {
           const { embedding, ...chunkWithoutEmbedding } = chunk;
           return chunkWithoutEmbedding as DocumentChunkOptimized;
@@ -206,13 +206,13 @@ export class SearchService {
     try {
       log.debug('Retrieving index statistics');
       const stats = await this.vectorIndex.getStatistics();
-      
+
       log.debug('Index statistics retrieved', {
         totalChunks: stats.totalChunks,
         totalFiles: stats.totalFiles,
         totalTokens: stats.totalTokens
       });
-      
+
       return stats;
     } catch (error: any) {
       log.error('Failed to get statistics', error);
@@ -254,14 +254,14 @@ export class SearchService {
   dispose(): void {
     try {
       log.debug('Disposing SearchService resources');
-      
+
       this.vectorIndex.close();
-      
+
       if (this.embeddingService) {
         // Note: Don't dispose the singleton EmbeddingService here
         this.embeddingService = null;
       }
-      
+
       log.info('SearchService disposed');
     } catch (error: any) {
       log.error('Error disposing SearchService resources', error);

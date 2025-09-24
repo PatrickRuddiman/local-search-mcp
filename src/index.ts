@@ -366,13 +366,13 @@ class LocalSearchServer {
   private async handleRemoveFile(args: any, requestId: string) {
     try {
       log.debug(`[${requestId}] Removing file from index: ${args.filePath}`);
-      
+
       // Use VectorIndex directly for instant file deletion
       const vectorIndex = new (await import('./core/VectorIndex.js')).VectorIndex();
       const deletedCount = await vectorIndex.deleteFile(args.filePath);
       vectorIndex.close();
 
-      const message = deletedCount > 0 
+      const message = deletedCount > 0
         ? `Removed ${deletedCount} chunks for file: ${args.filePath}`
         : `No chunks found for file: ${args.filePath}`;
 
@@ -399,7 +399,7 @@ class LocalSearchServer {
   private async handleFetchRepo(args: any, requestId: string) {
     try {
       log.debug(`[${requestId}] Starting async repository fetch: ${args.repoUrl}`);
-      
+
       const jobId = this.jobManager.createJob('fetch_repo', {
         repoUrl: args.repoUrl,
         branch: args.branch || 'default',
@@ -444,7 +444,7 @@ class LocalSearchServer {
   private async handleFetchFile(args: any, requestId: string) {
     try {
       log.debug(`[${requestId}] Starting async file download: ${args.url}`);
-      
+
       const jobId = this.jobManager.createJob('fetch_file', {
         url: args.url,
         filename: args.filename,
@@ -490,7 +490,7 @@ class LocalSearchServer {
   private async handleGetJobStatus(args: any, requestId: string) {
     try {
       log.debug(`[${requestId}] Getting job status (NON-BLOCKING): ${args.jobId}`);
-      
+
       // Use async method with setImmediate to prevent blocking (2025 best practice)
       return await new Promise((resolve) => {
         setImmediate(() => {
@@ -509,17 +509,17 @@ class LocalSearchServer {
               return;
             }
 
-            const duration = job.endTime 
+            const duration = job.endTime
               ? job.endTime.getTime() - job.startTime.getTime()
               : Date.now() - job.startTime.getTime();
 
             const message = `Job Status: ${job.id}\n` +
-                            `Type: ${job.type}\n` +
-                            `Status: ${job.status}\n` +
-                            `Progress: ${job.progress}%\n` +
-                            `Duration: ${(duration / 1000).toFixed(1)}s\n` +
-                            (job.error ? `Error: ${job.error}\n` : '') +
-                            (job.status === 'completed' ? 'Job completed successfully!' : '');
+              `Type: ${job.type}\n` +
+              `Status: ${job.status}\n` +
+              `Progress: ${job.progress}%\n` +
+              `Duration: ${(duration / 1000).toFixed(1)}s\n` +
+              (job.error ? `Error: ${job.error}\n` : '') +
+              (job.status === 'completed' ? 'Job completed successfully!' : '');
 
             resolve({
               content: [
@@ -556,7 +556,7 @@ class LocalSearchServer {
   private async handleListActiveJobs(args: any, requestId: string) {
     try {
       log.debug(`[${requestId}] Listing active jobs (NON-BLOCKING)`);
-      
+
       // Use async method with setImmediate to prevent blocking (2025 best practice)
       return await new Promise((resolve) => {
         setImmediate(() => {
@@ -584,12 +584,12 @@ class LocalSearchServer {
               .join('\n');
 
             const message = `Active Jobs (${activeJobs.length}):\n${jobSummary}\n\n` +
-                            `Statistics:\n` +
-                            `Total: ${stats.total}\n` +
-                            `Running: ${stats.running}\n` +
-                            `Completed: ${stats.completed}\n` +
-                            `Failed: ${stats.failed}\n` +
-                            `Avg Duration: ${(stats.averageDuration / 1000).toFixed(1)}s`;
+              `Statistics:\n` +
+              `Total: ${stats.total}\n` +
+              `Running: ${stats.running}\n` +
+              `Completed: ${stats.completed}\n` +
+              `Failed: ${stats.failed}\n` +
+              `Avg Duration: ${(stats.averageDuration / 1000).toFixed(1)}s`;
 
             resolve({
               content: [

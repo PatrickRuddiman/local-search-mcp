@@ -1,14 +1,54 @@
+[![npm version](https://img.shields.io/npm/v/local-search-mcp.svg)](https://www.npmjs.com/package/local-search-mcp)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 # Local Search MCP Server
 
 A Model Context Protocol (MCP) server that enables AI assistants to perform semantic search across indexed documents using vector embeddings. Index documents from GitHub repositories and URLs to power natural language queries with contextual results.
 
-## Quick Start
+## Table of Contents
 
-### Install
+- [Features](#features)
+- [Installation](#installation)
+  - [Prerequisites](#prerequisites)
+  - [Setup](#setup)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Tools](#tools)
+- [Documentation](#documentation)
+- [Development](#development)
+- [Contributing](#contributing)
+- [Author](#author)
+- [License](#license)
+
+## Features
+
+- **Semantic Search**: Natural language queries over indexed documents using transformer embeddings
+- **Repository Indexing**: Clone and index GitHub repositories with configurable file patterns
+- **File Downloads**: Fetch and index files from URLs with automatic processing
+- **Async Processing**: Non-blocking operations with job progress tracking
+- **SQLite Storage**: Efficient vector storage with optimized similarity search
+- **MCP Protocol**: Full compatibility with Claude Desktop and other MCP applications
+
+## Installation
+
+### Prerequisites
+
+- **Node.js** >= 18.0.0
+- **npm** or **yarn** package manager
+- **Git** for cloning repositories
+
+### Setup
+
 ```bash
+# Clone the repository
 git clone https://github.com/PatrickRuddiman/local-search-mcp.git
 cd local-search-mcp
+
+# Install dependencies
 npm install
+
+# Build the project
 npm run build
 ```
 
@@ -31,14 +71,9 @@ Add to Claude Desktop's `claude_desktop_config.json`:
 }
 ```
 
-## Features
+## Usage
 
-- **Semantic Search**: Natural language queries over indexed documents using transformer embeddings
-- **Repository Indexing**: Clone and index GitHub repositories with configurable file patterns
-- **File Downloads**: Fetch and index files from URLs with automatic processing
-- **Async Processing**: Non-blocking operations with job progress tracking
-- **SQLite Storage**: Efficient vector storage with optimized similarity search
-- **MCP Protocol**: Full compatibility with Claude Desktop and other MCP applications
+Once configured, the server provides semantic search capabilities within Claude Desktop and other MCP-compatible applications.
 
 ## Tools
 
@@ -99,9 +134,11 @@ The server processes these file types:
 2. Create a feature branch
 3. Submit a pull request
 
+## Author
+
+**Patrick Ruddiman**  
+[GitHub](https://github.com/PatrickRuddiman)
+
 ## License
 
 MIT - see [LICENSE](LICENSE) for details.
-
----
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)

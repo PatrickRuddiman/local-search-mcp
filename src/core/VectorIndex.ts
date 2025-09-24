@@ -33,9 +33,9 @@ export class VectorIndex {
 
     const mcpPaths = getMcpPaths();
     this.dbPath = mcpPaths.database;
-    
+
     this.db = new Database(this.dbPath);
-    
+
     // Load sqlite-vec extension
     sqliteVec.load(this.db);
     log.info('sqlite-vec extension loaded successfully');
@@ -145,7 +145,7 @@ export class VectorIndex {
         for (const chunk of chunkList) {
           // sqlite-vec expects Float32Array for embeddings
           const embedding = new Float32Array(chunk.embedding);
-          
+
           vecStmt.run(
             embedding,
             chunk.id,
@@ -161,7 +161,7 @@ export class VectorIndex {
 
       transaction(chunks);
       timer();
-      
+
       log.info('sqlite-vec chunk storage completed', { totalStored: chunks.length });
       return chunks.length;
 
@@ -196,7 +196,7 @@ export class VectorIndex {
           try {
             // Convert query embedding to Float32Array for sqlite-vec
             const queryVector = new Float32Array(queryEmbedding);
-            
+
             // Use sqlite-vec's MATCH syntax with k parameter for KNN search
             const stmt = this.db.prepare(`
               SELECT 
@@ -208,21 +208,21 @@ export class VectorIndex {
                 AND k = ?
               ORDER BY distance
             `);
-            
+
             const allRows = stmt.all(
               queryVector,
               limit
             ) as VecChunkRow[];
-            
+
             // Filter by minimum score after retrieval
             const rows = allRows.filter(row => (row.distance || 0) >= minScore);
-            
+
             timer();
             log.info('sqlite-vec vector search completed (ASYNC)', {
               totalResults: rows.length,
               topScore: rows[0]?.distance || 0
             });
-            
+
             const results = rows.map(row => ({
               id: row.chunk_id,
               filePath: row.file_path,
@@ -237,7 +237,7 @@ export class VectorIndex {
                 tokenCount: row.token_count
               }
             }));
-            
+
             resolve(results);
           } catch (error: any) {
             log.error('sqlite-vec search failed (ASYNC)', error);
@@ -270,9 +270,9 @@ export class VectorIndex {
         FROM vec_chunks 
         WHERE chunk_id = ?
       `);
-      
+
       const row = stmt.get(chunkId) as VecChunkRow | undefined;
-      
+
       if (!row) {
         return null;
       }
@@ -316,9 +316,9 @@ export class VectorIndex {
               WHERE file_path = ? 
               ORDER BY chunk_index
             `);
-            
+
             const rows = stmt.all(filePath) as VecChunkRow[];
-            
+
             const results = rows.map(row => ({
               id: row.chunk_id,
               filePath: row.file_path,
@@ -333,7 +333,7 @@ export class VectorIndex {
                 tokenCount: row.token_count
               }
             }));
-            
+
             resolve(results);
           } catch (error: any) {
             reject(new StorageError(
@@ -343,7 +343,7 @@ export class VectorIndex {
           }
         });
       });
-      
+
     } catch (error: any) {
       throw new StorageError(
         `Failed to get file chunks: ${error.message}`,
@@ -362,11 +362,11 @@ export class VectorIndex {
       // Delete from vec_chunks table
       const vecStmt = this.db.prepare('DELETE FROM vec_chunks WHERE file_path = ?');
       const vecResult = vecStmt.run(filePath);
-      
+
       // Delete from documents table
       const docStmt = this.db.prepare('DELETE FROM documents WHERE file_path = ?');
       docStmt.run(filePath);
-      
+
       return vecResult.changes;
     } catch (error: any) {
       throw new StorageError(
@@ -407,7 +407,7 @@ export class VectorIndex {
               lastUpdated: new Date(),
               dbSize
             };
-            
+
             resolve(result);
           } catch (error: any) {
             reject(new StorageError(
