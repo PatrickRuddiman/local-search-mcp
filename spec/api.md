@@ -82,7 +82,6 @@
 {
   "url": "string (URL of file to download)",
   "filename": "string (desired filename for saving)",
-  "docFolder": "string (optional, folder to save file, defaults to './docs/fetched')",
   "options": {
     "overwrite": "boolean (default: true)",
     "indexAfterSave": "boolean (default: true)",

@@ -53,7 +53,6 @@ const result = await fetch_file({
 await fetch_file({
   url: "https://example.com/api-docs.json",
   filename: "api-reference.json",
-  docFolder: "./docs/api-files",
   options: {
     maxFileSizeMB: 5,
     overwrite: false
