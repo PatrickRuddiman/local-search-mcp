@@ -60,7 +60,26 @@ jobs:
         id: pack
         run: |
           mkdir -p dist
-          tarball=$(npm pack --json | jq -r '.[0].filename')
+          if ! pack_output=$(npm pack --json); then
+            echo "npm pack failed" >&2
+            exit 1
+          fi
+
+          if [ -z "$pack_output" ]; then
+            echo "npm pack did not produce any output" >&2
+            exit 1
+          fi
+
+          tarball=$(echo "$pack_output" | jq -er '.[0].filename' 2>/dev/null || true)
+          if [ -z "$tarball" ]; then
+            echo "Unable to determine tarball filename from npm pack output" >&2
+            exit 1
+          fi
+
+          if [ ! -f "$tarball" ]; then
+            echo "Expected tarball '$tarball' was not created" >&2
+            exit 1
+          fi
           mv "$tarball" dist/
           echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
           echo "${{ steps.version.outputs.version }}" > dist/version.txt

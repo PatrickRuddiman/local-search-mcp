@@ -23,19 +23,35 @@ const compareSemver = (a, b) => {
   return a.patch - b.patch;
 };
 
-const resolveNextVersion = (localVersion, publishedVersion) => {
+const resolveNextVersion = (localVersion, publishedVersion, bumpType) => {
   const localSemver = parseSemver(localVersion);
   const candidates = [localSemver];
 
-  if (publishedVersion) {
-    candidates.push(parseSemver(publishedVersion));
+  const normalizedPublished = typeof publishedVersion === 'string' ? publishedVersion.trim() : publishedVersion;
+  if (normalizedPublished) {
+    candidates.push(parseSemver(normalizedPublished));
   }
 
   const baseSemver = candidates.reduce((latest, candidate) =>
     compareSemver(candidate, latest) > 0 ? candidate : latest
   );
 
-  const nextSemver = { ...baseSemver, patch: baseSemver.patch + 1 };
+  const nextSemver = { ...baseSemver };
+  switch (bumpType) {
+    case 'major':
+      nextSemver.major += 1;
+      nextSemver.minor = 0;
+      nextSemver.patch = 0;
+      break;
+    case 'minor':
+      nextSemver.minor += 1;
+      nextSemver.patch = 0;
+      break;
+    default:
+      nextSemver.patch += 1;
+      break;
+  }
+
   return `${nextSemver.major}.${nextSemver.minor}.${nextSemver.patch}`;
 };
 
@@ -67,7 +83,12 @@ const main = () => {
     const pkgPath = path.resolve('package.json');
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 
-    const nextVersion = resolveNextVersion(pkg.version, process.env.PUBLISHED_VERSION || '');
+    const bumpType = (process.env.BUMP_TYPE || 'patch').toLowerCase();
+    if (!['major', 'minor', 'patch'].includes(bumpType)) {
+      throw new Error(`Unsupported bump type '${bumpType}'. Expected one of major, minor, or patch.`);
+    }
+
+    const nextVersion = resolveNextVersion(pkg.version, process.env.PUBLISHED_VERSION, bumpType);
     pkg.version = nextVersion;
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 
