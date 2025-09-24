@@ -62,7 +62,6 @@ export interface RepoOptions {
 export interface FileDownloadOptions {
   url: string;
   filename: string;
-  docFolder?: string;
   overwrite?: boolean;
   indexAfterSave?: boolean;
   maxFileSizeMB?: number;
