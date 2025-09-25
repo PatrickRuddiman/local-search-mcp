@@ -16,10 +16,19 @@ jobs:
       actions: read
       contents: read
     steps:
+      - name: Set repository to checkout
+        id: set-repo
+        run: |
+          if [ -n "${{ github.event.workflow_run.head_repository.full_name }}" ]; then
+            echo "REPO_TO_CHECKOUT=${{ github.event.workflow_run.head_repository.full_name }}" >> $GITHUB_ENV
+          else
+            echo "REPO_TO_CHECKOUT=${{ github.repository }}" >> $GITHUB_ENV
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.event.workflow_run.head_repository.full_name || github.repository }}
+          repository: ${{ env.REPO_TO_CHECKOUT }}
           ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Use Node.js 20
