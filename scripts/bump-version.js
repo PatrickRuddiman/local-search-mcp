@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { execSync } from 'node:child_process';
 
 const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
@@ -21,11 +22,47 @@ const compareSemver = (a, b) => {
   return a.patch - b.patch;
 };
 
+const extractSemver = (value) => {
+  if (!value) {
+    return '';
+  }
+
+  const maybeSemvers = String(value)
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .reverse();
+
+  for (const candidate of maybeSemvers) {
+    if (semverPattern.test(candidate)) {
+      return candidate;
+    }
+  }
+
+  return '';
+};
+
+const fetchPublishedVersion = (packageName) => {
+  if (!packageName) {
+    return '';
+  }
+
+  try {
+    const result = execSync(`npm view ${packageName} version`, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      encoding: 'utf8',
+    });
+    return extractSemver(result);
+  } catch (error) {
+    return '';
+  }
+};
+
 const resolveNextVersion = (localVersion, publishedVersion, bumpType) => {
   const localSemver = parseSemver(localVersion);
   const candidates = [localSemver];
 
-  const normalizedPublished = typeof publishedVersion === 'string' ? publishedVersion.trim() : publishedVersion;
+  const normalizedPublished = extractSemver(publishedVersion);
   if (normalizedPublished) {
     candidates.push(parseSemver(normalizedPublished));
   }
@@ -86,7 +123,8 @@ const main = () => {
       throw new Error(`Unsupported bump type '${bumpType}'. Expected one of major, minor, or patch.`);
     }
 
-    const nextVersion = resolveNextVersion(pkg.version, process.env.PUBLISHED_VERSION, bumpType);
+    const publishedVersion = process.env.PUBLISHED_VERSION || fetchPublishedVersion(pkg.name);
+    const nextVersion = resolveNextVersion(pkg.version, publishedVersion, bumpType);
     pkg.version = nextVersion;
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 
