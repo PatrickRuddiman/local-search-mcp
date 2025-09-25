@@ -16,43 +16,66 @@ jobs:
       actions: read
       contents: read
     steps:
+      - name: Set repository to checkout
+        id: set-repo
+        run: |
+          if [ -n "${{ github.event.workflow_run.head_repository.full_name }}" ]; then
+            echo "REPO_TO_CHECKOUT=${{ github.event.workflow_run.head_repository.full_name }}" >> $GITHUB_ENV
+          else
+            echo "REPO_TO_CHECKOUT=${{ github.repository }}" >> $GITHUB_ENV
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.REPO_TO_CHECKOUT }}
+          ref: ${{ github.event.workflow_run.head_sha }}
+
       - name: Use Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org/
 
-      - name: Download package artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: npm-package
-          run-id: ${{ github.event.workflow_run.id }}
-          path: ./dist
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Inspect package contents
-        run: ls -R dist
+      - name: Read package metadata
+        id: package
+        run: |
+          name=$(node -p "require('./package.json').name")
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch published version
+        id: published
+        run: |
+          set +e
+          package_name=${{ steps.package.outputs.name }}
+          if [ -z "$package_name" ]; then
+            echo "Package name could not be determined" >&2
+            exit 1
+          fi
+          published=$(npm view "$package_name" version 2>/dev/null)
+          status=$?
+          set -e
+          if [ $status -ne 0 ]; then
+            published=""
+          fi
+          echo "version=$published" >> "$GITHUB_OUTPUT"
+
+      - name: Determine next version
+        id: version
+        env:
+          PUBLISHED_VERSION: ${{ steps.published.outputs.version }}
+        run: node scripts/bump-version.js
 
       - name: Show release version
-        run: |
-          if [ -f dist/version.txt ]; then
-            echo "Publishing version $(cat dist/version.txt)"
-          else
-            echo "version.txt not found in artifact" >&2
-            exit 1
-          fi
+        run: echo "Publishing version ${{ steps.version.outputs.version }}"
+
+      - name: Run build
+        run: npm run build
 
       - name: Publish to npm
-        run: |
-          if [ ! -f dist/tarball.txt ]; then
-            echo "tarball.txt not found in artifact" >&2
-            exit 1
-          fi
-          tarball_name=$(cat dist/tarball.txt)
-          tarball_path="dist/$tarball_name"
-          if [ ! -f "$tarball_path" ]; then
-            echo "Unable to locate package tarball $tarball_path" >&2
-            exit 1
-          fi
-          npm publish "$tarball_path" --access public
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
