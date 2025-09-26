@@ -1,26 +1,19 @@
 name: Release
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types:
-      - completed
+  push:
     branches: [main]
 
 permissions:
   contents: write
   id-token: write
-
-concurrency:
-  group: release
-  cancel-in-progress: false
+  issues: write
+  pull-requests: write
 
 jobs:
   release:
     name: Release and Publish
     runs-on: ubuntu-latest
-    # Only run if the CI workflow completed successfully
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     
     steps:
       - name: Checkout repository
@@ -48,44 +41,33 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run tests
+        run: npm test
+
       - name: Build project
         run: npm run build
+
+      - name: Create release info file
+        run: |
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          cat > release-info.json << EOF
+          {
+            "packageName": "$PACKAGE_NAME",
+            "npmRegistry": "https://www.npmjs.com/package/$PACKAGE_NAME",
+            "repository": "${{ github.repository }}",
+            "repositoryUrl": "https://github.com/${{ github.repository }}",
+            "commit": "${{ github.sha }}",
+            "buildDate": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "nodeVersion": "$(node --version)",
+            "npmVersion": "$(npm --version)",
+            "workflow": "${{ github.run_id }}",
+            "workflowUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "note": "This file will be updated with version-specific NPM links after semantic-release runs"
+          }
+          EOF
 
       - name: Run semantic release
         env:
           GITHUB_TOKEN: ${{ steps.access-token.outputs.token }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npx semantic-release
-
-      - name: Get package info for GitHub Release artifact
-        id: package-info
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          NAME=$(node -p "require('./package.json').name")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "name=$NAME" >> $GITHUB_OUTPUT
-          echo "Release version: $VERSION"
-          echo "Package name: $NAME"
-
-      - name: Create release info artifact
-        run: |
-          cat > release-info-v${{ steps.package-info.outputs.version }}.json << EOF
-          {
-            "version": "${{ steps.package-info.outputs.version }}",
-            "packageName": "${{ steps.package-info.outputs.name }}",
-            "npmPackage": "${{ steps.package-info.outputs.name }}@${{ steps.package-info.outputs.version }}",
-            "npmUrl": "https://www.npmjs.com/package/${{ steps.package-info.outputs.name }}/v/${{ steps.package-info.outputs.version }}",
-            "releaseDate": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "gitTag": "v${{ steps.package-info.outputs.version }}",
-            "githubRelease": "https://github.com/${{ github.repository }}/releases/tag/v${{ steps.package-info.outputs.version }}"
-          }
-          EOF
-
-      - name: Upload release info to GitHub Release
-        env:
-          GITHUB_TOKEN: ${{ steps.access-token.outputs.token }}
-        run: |
-          # Upload the release info file to the GitHub Release that semantic-release just created
-          gh release upload "v${{ steps.package-info.outputs.version }}" \
-            "./release-info-v${{ steps.package-info.outputs.version }}.json" \
-            --clobber

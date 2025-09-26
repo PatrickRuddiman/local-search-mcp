@@ -10,7 +10,27 @@
       }
     ],
     "@semantic-release/npm",
-    "@semantic-release/github",
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          {
+            "path": "build/**/*",
+            "label": "Build artifacts"
+          },
+          {
+            "path": "package.json",
+            "name": "package-v${nextRelease.version}.json",
+            "label": "Package manifest (v${nextRelease.version})"
+          },
+          {
+            "path": "release-info.json",
+            "name": "release-info-v${nextRelease.version}.json",
+            "label": "Release metadata with NPM links (v${nextRelease.version})"
+          }
+        ]
+      }
+    ],
     [
       "@semantic-release/git",
       {
