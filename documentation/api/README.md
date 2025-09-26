@@ -157,7 +157,6 @@ Start an async file download operation. Returns immediately with a job ID for po
 |-----------|------|----------|---------|-------------|
 | `url` | `string` | ✅ | - | HTTP/HTTPS URL to download |
 | `filename` | `string` | ✅ | - | Desired filename for saving |
-| `docFolder` | `string?` | ❌ | `${MCP_DOCS_FOLDER}/fetched` | Target folder |
 | `options.overwrite` | `boolean` | ❌ | `true` | Overwrite existing files |
 | `options.maxFileSizeMB` | `number` | ❌ | `10` | Maximum file size in MB |
 
@@ -351,7 +350,6 @@ export interface RepoOptions {
 export interface FileDownloadOptions {
   url: string;                  // Download URL
   filename: string;             // Desired filename
-  docFolder?: string;           // Target directory
   overwrite?: boolean;          // Overwrite existing files
   indexAfterSave?: boolean;     // Auto-index after download
   maxFileSizeMB?: number;       // File size limit
@@ -395,13 +393,12 @@ await fetch_repo({
 });
 ```
 
-### File Download with Custom Location
+### File Download with Configuration Options
 
 ```typescript
 await fetch_file({
   url: "https://raw.githubusercontent.com/user/repo/main/docs/api.md",
   filename: "api-reference.md",
-  docFolder: "/custom/docs/path",
   options: {
     overwrite: true,
     maxFileSizeMB: 5
