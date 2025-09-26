@@ -45,18 +45,47 @@ jobs:
           cache: 'npm'
           cache-dependency-path: 'package-lock.json'
 
-      - name: Download build artifacts from CI
-        uses: actions/download-artifact@v4
-        with:
-          name: build-output
-          github-token: ${{ steps.access-token.outputs.token }}
-          run-id: ${{ github.event.workflow_run.id }}
-
       - name: Install dependencies
         run: npm ci
+
+      - name: Build project
+        run: npm run build
 
       - name: Run semantic release
         env:
           GITHUB_TOKEN: ${{ steps.access-token.outputs.token }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npx semantic-release
+
+      - name: Get package info for GitHub Release artifact
+        id: package-info
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          NAME=$(node -p "require('./package.json').name")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "name=$NAME" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+          echo "Package name: $NAME"
+
+      - name: Create release info artifact
+        run: |
+          cat > release-info-v${{ steps.package-info.outputs.version }}.json << EOF
+          {
+            "version": "${{ steps.package-info.outputs.version }}",
+            "packageName": "${{ steps.package-info.outputs.name }}",
+            "npmPackage": "${{ steps.package-info.outputs.name }}@${{ steps.package-info.outputs.version }}",
+            "npmUrl": "https://www.npmjs.com/package/${{ steps.package-info.outputs.name }}/v/${{ steps.package-info.outputs.version }}",
+            "releaseDate": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "gitTag": "v${{ steps.package-info.outputs.version }}",
+            "githubRelease": "https://github.com/${{ github.repository }}/releases/tag/v${{ steps.package-info.outputs.version }}"
+          }
+          EOF
+
+      - name: Upload release info to GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ steps.access-token.outputs.token }}
+        run: |
+          # Upload the release info file to the GitHub Release that semantic-release just created
+          gh release upload "v${{ steps.package-info.outputs.version }}" \
+            "./release-info-v${{ steps.package-info.outputs.version }}.json" \
+            --clobber
