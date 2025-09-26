@@ -1,0 +1,10 @@
+# Access Token Policy for GitHub Actions
+# This file grants permissions to GitHub Actions workflows to bypass branch protection
+
+policies:
+  - actors: 
+      - "repo:PatrickRuddiman/local-search-mcp:ref:refs/heads/main"
+    permissions:
+      contents: write
+      pull-requests: write
+      metadata: read
