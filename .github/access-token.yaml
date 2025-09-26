@@ -6,5 +6,5 @@ policies:
       - "repo:PatrickRuddiman/local-search-mcp:ref:refs/heads/main"
     permissions:
       contents: write
-      pull-requests: write  
+      pull-requests: write
       metadata: read
