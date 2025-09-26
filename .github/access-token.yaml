@@ -6,7 +6,7 @@ statements:
   - subjects:
       # Allow semantic-release workflow on main branch
       - "repo:PatrickRuddiman/local-search-mcp:ref:refs/heads/main"
-      # Allow release workflow specifically  
+      # Allow release workflow specifically
       - "repo:PatrickRuddiman/local-search-mcp:workflow_ref:PatrickRuddiman/local-search-mcp/.github/workflows/release.yml@refs/heads/main"
     
     permissions: # https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps
