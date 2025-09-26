@@ -1,10 +1,17 @@
 import { EmbeddingService, EmbeddingConfig } from './EmbeddingService.js';
 import { VectorIndex } from './VectorIndex.js';
+import { RecommendationService } from './RecommendationService.js';
+import { RecommendationRepository } from './RecommendationRepository.js';
+import { RecommendationEngine } from './RecommendationEngine.js';
+import { LearningAlgorithm } from './LearningAlgorithm.js';
+import { DatabaseSchema } from './DatabaseSchema.js';
 import { log } from './Logger.js';
 import {
   DocumentChunkOptimized,
   SearchResult,
-  SearchOptions
+  SearchOptions,
+  SearchRecommendation,
+  RecommendationEffectiveness
 } from '../types/index.js';
 import * as path from 'path';
 
@@ -15,6 +22,9 @@ export interface SearchServiceConfig {
 export class SearchService {
   private embeddingService: EmbeddingService | null;
   private vectorIndex: VectorIndex;
+  private recommendationService: RecommendationService;
+  private recommendationEngine: RecommendationEngine;
+  private learningAlgorithm: LearningAlgorithm;
   private config: Required<SearchServiceConfig>;
 
   constructor(config: SearchServiceConfig = {}) {
@@ -24,9 +34,40 @@ export class SearchService {
     };
 
     this.embeddingService = null; // Will be initialized async
-    this.vectorIndex = new VectorIndex();
 
-    log.info('SearchService initialized');
+    // Create shared database schema for all repositories
+    const schema = new DatabaseSchema();
+    const recommendationRepository = new RecommendationRepository(schema.getDatabase());
+    this.recommendationService = new RecommendationService(recommendationRepository);
+
+    this.vectorIndex = new VectorIndex(schema, recommendationRepository);
+
+    // Initialize recommendation system components
+    this.recommendationEngine = new RecommendationEngine();
+    this.learningAlgorithm = new LearningAlgorithm();
+
+    // Initialize learning parameters from database (async)
+    this.initializeLearningParams();
+
+    log.info('SearchService initialized with recommendation system');
+  }
+
+  /**
+   * Initialize learning parameters from persistent storage
+   */
+  private async initializeLearningParams(): Promise<void> {
+    try {
+      const persistedParams = await this.vectorIndex.getLearningParameters();
+      if (persistedParams) {
+        this.learningAlgorithm = LearningAlgorithm.fromJSON(persistedParams as any);
+        log.debug('Learning parameters loaded from database', {
+          threshold: persistedParams.currentTfidfThreshold,
+          historyLength: persistedParams.effectivenessHistory.length
+        });
+      }
+    } catch (error) {
+      log.warn('Failed to load learning parameters, using defaults', error as any);
+    }
   }
 
   /**
@@ -37,6 +78,27 @@ export class SearchService {
       this.embeddingService = await EmbeddingService.getInstance(this.config.embeddingConfig);
     }
     return this.embeddingService;
+  }
+
+  /**
+   * Tokenize query into individual terms, preserving quoted phrases
+   * @param query The search query
+   * @returns Array of query terms
+   */
+  private tokenizeQuery(query: string): string[] {
+    const terms: string[] = [];
+    const regex = /"([^"]*)"|(\S+)/g;
+    let match;
+
+    while ((match = regex.exec(query.toLowerCase())) !== null) {
+      // Use quoted content if present, otherwise the unquoted term
+      const term = match[1] || match[2];
+      if (term && term.length > 1) { // Skip single characters
+        terms.push(term);
+      }
+    }
+
+    return [...new Set(terms)]; // Remove duplicates
   }
 
   /**
@@ -74,8 +136,43 @@ export class SearchService {
         return chunkWithoutEmbedding as DocumentChunkOptimized;
       });
 
+      // Calculate average score for recommendation analysis
+      const averageScore = optimizedResults.length > 0
+        ? optimizedResults.reduce((sum, r) => sum + (r.score || 0), 0) / optimizedResults.length
+        : 0;
+
+      // Tokenize query for recommendation analysis
+      const queryTerms = this.tokenizeQuery(query);
+
+      // Check if search should trigger recommendation analysis
+      const shouldAnalyzeRecommendations = this.learningAlgorithm.shouldAnalyzeForRecommendations(
+        totalResults,
+        averageScore,
+        queryTerms.length
+      );
+
+      let contextualRecommendations: SearchRecommendation | undefined = undefined;
+      let nextSteps: string[] = [];
+
+      // Generate contextual recommendations if needed (currently synchronous for simplicity)
+      if (shouldAnalyzeRecommendations) {
+        try {
+          // Quick synchronous approximation - get cached recommendation if available
+          const cachedRec = await this.vectorIndex.getRecommendation(query);
+          if (cachedRec) {
+            contextualRecommendations = cachedRec;
+        log.debug('Using cached recommendation', {
+          recommendationId: cachedRec.id,
+          strategy: cachedRec.suggestionStrategy,
+          confidence: cachedRec.confidence
+        } as any);
+          }
+        } catch (error) {
+          log.warn('Failed to check cached recommendations', error as any);
+        }
+      }
+
       // Generate next steps guidance for LLM workflow
-      const nextSteps: string[] = [];
       if (optimizedResults.length > 0) {
         const topResult = optimizedResults[0];
         nextSteps.push(
@@ -90,13 +187,23 @@ export class SearchService {
             );
           });
         }
+
+        // Add contextual recommendation next steps
+        if (contextualRecommendations) {
+          const rec = contextualRecommendations;
+          const suggestedQuery = rec.suggestedTerms.join(' ');
+          nextSteps.unshift(
+            `Recommended refined search: "${suggestedQuery}" (TF-IDF refinement, confidence: ${(rec.confidence * 100).toFixed(1)}%)`
+          );
+        }
       }
 
       log.debug('Search query completed', {
         query: query.substring(0, 50),
         totalResults,
         searchTime,
-        topScore: optimizedResults[0]?.score || 0
+        topScore: optimizedResults[0]?.score || 0,
+        recommendationAnalyzed: shouldAnalyzeRecommendations
       });
 
       return {
@@ -105,7 +212,8 @@ export class SearchService {
         totalResults,
         searchTime,
         options,
-        nextSteps
+        nextSteps,
+        recommendation: contextualRecommendations || undefined
       };
 
     } catch (error: any) {

@@ -258,6 +258,22 @@ class LocalSearchServer {
     });
   }
 
+  private formatSearchRecommendation(recommendation: any): string {
+    const strategyDescriptions = {
+      'term_removal': 'Simplifying your search by removing less relevant terms',
+      'term_refinement': 'Refining your search terms for better matches', 
+      'contextual_addition': 'Adding related terms to expand your search'
+    };
+
+    const strategyDesc = strategyDescriptions[recommendation.suggestionStrategy as keyof typeof strategyDescriptions] || 'Optimizing your search';
+    const suggestedQuery = recommendation.suggestedTerms.join(' ');
+    
+    return `\n\n🔍 **Search Recommendation** (${strategyDesc}):\n` +
+           `   Try searching for: "${suggestedQuery}"\n` +
+           `   Confidence: ${(recommendation.confidence * 100).toFixed(1)}%\n` +
+           `   Based on analysis of ${recommendation.analyzedDocuments}/${recommendation.totalDocuments} documents`;
+  }
+
   private async handleSearchDocuments(args: any, requestId: string) {
     try {
       log.debug(`[${requestId}] Executing search_documents for query: "${args.query}"`);
@@ -277,12 +293,18 @@ class LocalSearchServer {
         warningMessage = `\n\nNote: Index is currently incomplete - ${activeJobs.length} active jobs running (${jobDetails}). Results may be incomplete. Poll job status for completion.`;
       }
 
+      // Format recommendation if present
+      let recommendationText = '';
+      if (result.recommendation) {
+        recommendationText = this.formatSearchRecommendation(result.recommendation);
+      }
+
       if (result.totalResults === 0) {
         return {
           content: [
             {
               type: 'text',
-              text: `${summary}${warningMessage}\n\nNo matching documents found.`,
+              text: `${summary}${warningMessage}${recommendationText}\n\nNo matching documents found.`,
             },
           ],
         };
@@ -299,7 +321,7 @@ class LocalSearchServer {
         content: [
           {
             type: 'text',
-            text: `${summary}${warningMessage}\n\nTop Results:\n${resultText}`,
+            text: `${summary}${warningMessage}${recommendationText}\n\nTop Results:\n${resultText}`,
           },
           {
             type: 'text',
@@ -367,7 +389,10 @@ class LocalSearchServer {
       log.debug(`[${requestId}] Removing file from index: ${args.filePath}`);
 
       // Use VectorIndex directly for instant file deletion
-      const vectorIndex = new (await import('./core/VectorIndex.js')).VectorIndex();
+      const { VectorIndex } = await import('./core/VectorIndex.js');
+      const { DatabaseSchema } = await import('./core/DatabaseSchema.js');
+      const schema = new DatabaseSchema();
+      const vectorIndex = new VectorIndex(schema);
       const deletedCount = await vectorIndex.deleteFile(args.filePath);
       vectorIndex.close();
 

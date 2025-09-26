@@ -33,7 +33,7 @@ Execute semantic similarity search across all indexed documents using natural la
   "content": [
     {
       "type": "text",
-      "text": "Found N results for \"query\" in Tms"
+      "text": "Found N results for \"query\" in Tms\n\n🔍 **Search Recommendation** (strategy description):\n   Try searching for: \"suggested query\"\n   Confidence: 85.2%\n   Based on analysis of X/Y documents"
     },
     {
       "type": "text",
@@ -42,6 +42,8 @@ Execute semantic similarity search across all indexed documents using natural la
   ]
 }
 ```
+
+**Note**: Search recommendations appear automatically when queries have low confidence (few results, low scores, or many terms). The system uses TF-IDF analysis to suggest refined search terms that may yield better results.
 
 #### Result Object Structure
 
@@ -381,6 +383,36 @@ await search_documents({
     minScore: 0.8
   }
 });
+```
+
+### Search with Recommendations
+
+When search queries have low confidence (few results, low similarity scores, or too many terms), the system automatically provides intelligent recommendations:
+
+```typescript
+// Query with few results - triggers recommendation
+await search_documents({
+  query: "nonexistent feature xyz"
+});
+
+// Query with too many terms - triggers recommendation  
+await search_documents({
+  query: "authentication security token validation middleware error handling debug logs"
+});
+```
+
+**Response includes recommendations:**
+```
+Found 2 results for "nonexistent feature xyz" in 45ms
+
+🔍 **Search Recommendation** (Simplifying your search by removing less relevant terms):
+   Try searching for: "feature authentication"
+   Confidence: 87.3%
+   Based on analysis of 1,250/2,500 documents
+
+Top Results:
+1. /docs/auth.md:15 (Score: 0.892)
+   Authentication features and implementation...
 ```
 
 ### Repository Processing
