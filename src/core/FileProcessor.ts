@@ -1,13 +1,19 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { FileProcessingError } from '../types/index.js';
+import { FileProcessingError, ContentMetadata } from '../types/index.js';
 import { log } from './Logger.js';
+import { ContentClassifier } from './ContentClassifier.js';
+import { ContentEnhancer } from './ContentEnhancer.js';
+import { DomainExtractor } from './DomainExtractor.js';
 
 export class FileProcessor {
   private supportedExtensions: Set<string>;
   private maxFileSizeMB: number;
+  private contentClassifier: ContentClassifier;
+  private contentEnhancer: ContentEnhancer;
+  private domainExtractor: DomainExtractor | null = null;
 
-  constructor(maxFileSizeMB: number = 1024) {
+  constructor(maxFileSizeMB: number = 1024, database?: any) {
     log.debug('Initializing FileProcessor', { maxFileSizeMB });
     this.maxFileSizeMB = maxFileSizeMB;
     this.supportedExtensions = new Set([
@@ -15,9 +21,22 @@ export class FileProcessor {
       '.js', '.ts', '.py', '.java', '.c', '.cpp', '.h',
       '.css', '.scss', '.html', '.xml', '.csv'
     ]);
+    
+    // Initialize content processing components
+    this.contentClassifier = new ContentClassifier();
+    this.contentEnhancer = new ContentEnhancer();
+    
+    // Initialize domain extractor if database is provided
+    if (database) {
+      this.domainExtractor = new DomainExtractor(database);
+    }
+    
     log.debug('FileProcessor initialized successfully', {
       supportedExtensions: Array.from(this.supportedExtensions),
-      maxFileSizeMB: this.maxFileSizeMB
+      maxFileSizeMB: this.maxFileSizeMB,
+      hasContentClassifier: !!this.contentClassifier,
+      hasContentEnhancer: !!this.contentEnhancer,
+      hasDomainExtractor: !!this.domainExtractor
     });
   }
 
@@ -216,6 +235,92 @@ export class FileProcessor {
     // Simple heuristic: assume files under 100KB are text
     // In production, you'd check the MIME type or first few bytes
     return fileSize < 100 * 1024;
+  }
+
+  /**
+   * Process file with enhanced content classification and domain detection
+   * @param filePath Absolute path to the file
+   * @returns Enhanced processing result with metadata
+   */
+  async processFileWithMetadata(filePath: string): Promise<{
+    content: string;
+    enhancedContent: string;
+    metadata: ContentMetadata;
+    domains: string[];
+  }> {
+    const timer = log.time(`enhanced-process-${path.basename(filePath)}`);
+
+    try {
+      log.debug('Starting enhanced file processing', { filePath });
+
+      // Extract raw text content
+      const rawContent = await this.extractText(filePath);
+      
+      // Classify content to get type and quality metrics
+      const classificationResult = await this.contentClassifier.classifyContent(
+        rawContent, 
+        filePath, 
+        path.extname(filePath)
+      );
+      
+      // Enhance content based on its classification
+      const enhancementResult = await this.contentEnhancer.enhanceContent(
+        rawContent, 
+        classificationResult.classification,
+        filePath
+      );
+      
+      // Extract domain information if domain extractor is available
+      let domains: string[] = [];
+      if (this.domainExtractor) {
+        domains = await this.domainExtractor.extractDomainTags(
+          enhancementResult.processedContent,
+          filePath,
+          classificationResult.classification.language
+        );
+      }
+      
+      // Get file stats for metadata
+      const stats = await fs.stat(filePath);
+      
+      // Construct comprehensive metadata
+      const metadata: ContentMetadata = {
+        contentType: classificationResult.classification.contentType,
+        language: classificationResult.classification.language,
+        domainTags: domains,
+        qualityScore: classificationResult.quality.score,
+        sourceAuthority: classificationResult.authority.score,
+        processedContent: enhancementResult.processedContent,
+        rawContent: rawContent,
+        fileExtension: path.extname(filePath),
+        hasComments: enhancementResult.hasComments,
+        hasDocumentation: enhancementResult.hasDocumentation
+      };
+
+      timer();
+      log.info('Enhanced file processing completed', {
+        filePath,
+        contentType: classificationResult.classification.contentType,
+        language: classificationResult.classification.language,
+        qualityScore: classificationResult.quality.score,
+        authorityScore: classificationResult.authority.score,
+        domains: domains.length,
+        originalLength: rawContent.length,
+        enhancedLength: enhancementResult.processedContent.length,
+        tokenCount: FileProcessor.countTokens(enhancementResult.processedContent)
+      });
+
+      return {
+        content: rawContent,
+        enhancedContent: enhancementResult.processedContent,
+        metadata,
+        domains
+      };
+
+    } catch (error: any) {
+      log.error('Enhanced file processing failed', error, { filePath });
+      throw error;
+    }
   }
 
   /**

@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { DocumentChunk, VectorIndexStatistics, StorageError } from '../types/index.js';
+import { DocumentChunk, DocumentChunkOptimized, VectorIndexStatistics, StorageError, ContentMetadata } from '../types/index.js';
 import { log } from './Logger.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -365,12 +365,198 @@ export class VectorRepository {
   }
 
   /**
+   * Store content metadata for enhanced document classification
+   * @param filePath File path
+   * @param metadata Enhanced content metadata
+   */
+  async storeContentMetadata(filePath: string, metadata: ContentMetadata): Promise<void> {
+    try {
+      const stmt = this.db.prepare(`
+        INSERT OR REPLACE INTO content_metadata
+        (file_path, content_type, language, domain_tags, quality_score, 
+         source_authority, file_extension, has_comments, has_documentation, 
+         processed_content, raw_content, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      `);
+
+      stmt.run(
+        filePath,
+        metadata.contentType,
+        metadata.language,
+        JSON.stringify(metadata.domainTags),
+        metadata.qualityScore,
+        metadata.sourceAuthority,
+        metadata.fileExtension,
+        metadata.hasComments ? 1 : 0,
+        metadata.hasDocumentation ? 1 : 0,
+        metadata.processedContent || null,
+        metadata.rawContent || null
+      );
+
+      log.debug('Content metadata stored', {
+        filePath: path.basename(filePath),
+        contentType: metadata.contentType,
+        language: metadata.language,
+        domainCount: metadata.domainTags.length
+      });
+
+    } catch (error: any) {
+      log.error('Failed to store content metadata', error, { filePath });
+      throw new StorageError(
+        `Failed to store content metadata: ${error.message}`,
+        error
+      );
+    }
+  }
+
+  /**
+   * Get content metadata for a file
+   * @param filePath File path
+   * @returns Content metadata or null if not found
+   */
+  async getContentMetadata(filePath: string): Promise<ContentMetadata | null> {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT content_type, language, domain_tags, quality_score, 
+               source_authority, file_extension, has_comments, 
+               has_documentation, processed_content, raw_content
+        FROM content_metadata
+        WHERE file_path = ?
+      `);
+
+      const row = stmt.get(filePath) as any;
+
+      if (!row) {
+        return null;
+      }
+
+      return {
+        contentType: row.content_type,
+        language: row.language,
+        domainTags: JSON.parse(row.domain_tags || '[]'),
+        qualityScore: row.quality_score,
+        sourceAuthority: row.source_authority,
+        fileExtension: row.file_extension,
+        hasComments: row.has_comments === 1,
+        hasDocumentation: row.has_documentation === 1,
+        processedContent: row.processed_content,
+        rawContent: row.raw_content
+      };
+
+    } catch (error: any) {
+      log.error('Failed to get content metadata', error, { filePath });
+      return null;
+    }
+  }
+
+  /**
+   * Enhanced search with content metadata support
+   * @param queryEmbedding Query embedding vector
+   * @param limit Maximum results to return
+   * @param minScore Minimum similarity score
+   * @returns Document chunks with enhanced metadata
+   */
+  async searchSimilarWithMetadata(queryEmbedding: number[], limit: number = 10, minScore: number = 0.0): Promise<DocumentChunkOptimized[]> {
+    const timer = log.time('enhanced-vector-search');
+    log.debug('Starting enhanced vector search with metadata', {
+      queryEmbeddingSize: queryEmbedding.length,
+      limit,
+      minScore
+    });
+
+    try {
+      return await new Promise((resolve, reject) => {
+        setImmediate(() => {
+          try {
+            const queryVector = new Float32Array(queryEmbedding);
+
+            // Join with content metadata for enhanced results
+            const stmt = this.db.prepare(`
+              SELECT
+                vc.chunk_id, vc.file_path, vc.chunk_index, vc.content,
+                vc.chunk_offset, vc.token_count, vc.created_at, vc.distance,
+                cm.content_type, cm.language, cm.domain_tags, cm.quality_score,
+                cm.source_authority, cm.file_extension, cm.has_comments,
+                cm.has_documentation, cm.processed_content, cm.raw_content
+              FROM vec_chunks vc
+              LEFT JOIN content_metadata cm ON vc.file_path = cm.file_path
+              WHERE vc.embedding MATCH ?
+                AND k = ?
+              ORDER BY vc.distance
+            `);
+
+            const allRows = stmt.all(queryVector, limit) as any[];
+            const rows = allRows.filter(row => (row.distance || 0) >= minScore);
+
+            timer();
+            log.info('Enhanced vector search completed', {
+              totalResults: rows.length,
+              topScore: rows[0]?.distance || 0,
+              withMetadata: rows.filter(r => r.content_type).length
+            });
+
+            const results = rows.map(row => {
+              const result: DocumentChunkOptimized = {
+                id: row.chunk_id,
+                filePath: row.file_path,
+                chunkIndex: row.chunk_index,
+                content: row.content,
+                score: row.distance || 0,
+                metadata: {
+                  fileSize: 0,
+                  lastModified: new Date(row.created_at),
+                  chunkOffset: row.chunk_offset,
+                  tokenCount: row.token_count
+                }
+              };
+
+              // Add enhanced content metadata if available
+              if (row.content_type) {
+                result.contentMetadata = {
+                  contentType: row.content_type,
+                  language: row.language,
+                  domainTags: JSON.parse(row.domain_tags || '[]'),
+                  qualityScore: row.quality_score,
+                  sourceAuthority: row.source_authority,
+                  fileExtension: row.file_extension,
+                  hasComments: row.has_comments === 1,
+                  hasDocumentation: row.has_documentation === 1,
+                  processedContent: row.processed_content,
+                  rawContent: row.raw_content
+                };
+              }
+
+              return result;
+            });
+
+            resolve(results);
+          } catch (error: any) {
+            log.error('Enhanced vector search failed', error);
+            reject(new StorageError(
+              `Enhanced vector search failed: ${error.message}`,
+              error
+            ));
+          }
+        });
+      });
+
+    } catch (error: any) {
+      log.error('Enhanced vector search failed', error);
+      throw new StorageError(
+        `Enhanced vector search failed: ${error.message}`,
+        error
+      );
+    }
+  }
+
+  /**
    * Clear all vector data from index
    */
   async clear(): Promise<void> {
     try {
       this.db.exec('DELETE FROM vec_chunks');
       this.db.exec('DELETE FROM documents');
+      this.db.exec('DELETE FROM content_metadata');
     } catch (error: any) {
       throw new StorageError(
         `Failed to clear vector index: ${error.message}`,

@@ -9,11 +9,6 @@ export interface ProgressEvent {
   timestamp: Date;
 }
 
-export interface ProgressSubscription {
-  jobId: string;
-  callback: (event: ProgressEvent) => void;
-}
-
 /**
  * Event-driven progress monitoring system (2025 MCP best practices)
  * Uses EventEmitter patterns for real-time, non-blocking progress updates

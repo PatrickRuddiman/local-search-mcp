@@ -13,27 +13,6 @@ export interface DocumentChunk {
   };
 }
 
-export interface ConcurrencyConfig {
-  maxFileProcessingConcurrency?: number; // Default: os.cpus().length
-  maxDirectoryConcurrency?: number; // Default: os.cpus().length * 2
-  maxEmbeddingConcurrency?: number; // Default: os.cpus().length
-  maxRepositoryConcurrency?: number; // Default: os.cpus().length / 2
-  maxFileWatcherConcurrency?: number; // Default: os.cpus().length
-}
-
-export interface IndexOptions {
-  chunkSize?: number;
-  overlap?: number;
-  maxFiles?: number;
-  fileTypes?: string[];
-  includePatterns?: string[];
-  excludePatterns?: string[];
-  useGPU?: boolean;
-  outputStyle?: 'markdown' | 'plain';
-  removeComments?: boolean;
-  showLineNumbers?: boolean;
-}
-
 export interface SearchOptions {
   limit?: number;
   minScore?: number;
@@ -48,16 +27,6 @@ export interface FileDetailsOptions {
   contextLines?: number;
 }
 
-export interface RepoOptions {
-  repoUrl: string;
-  branch?: string;
-  includePatterns?: string[];
-  excludePatterns?: string[];
-  outputStyle?: 'markdown' | 'plain';
-  removeComments?: boolean;
-  showLineNumbers?: boolean;
-}
-
 export interface FileDownloadOptions {
   url: string;
   filename: string;
@@ -67,14 +36,6 @@ export interface FileDownloadOptions {
   maxFileSizeMB?: number;
 }
 
-export interface IndexingResult {
-  totalFiles: number;
-  processedFiles: number;
-  totalChunks: number;
-  totalTokens: number;
-  processingTime: number;
-  errors: string[];
-}
 
 export interface DocumentChunkOptimized {
   id: string;
@@ -167,12 +128,11 @@ export interface AuthorityAssessment {
 
 // Enhanced search options with domain filtering
 export interface EnhancedSearchOptions extends SearchOptions {
-  domainFilter?: string[]; // filter by specific domains
-  contentTypeFilter?: ('code' | 'docs' | 'config' | 'mixed')[];
-  minQualityScore?: number; // minimum content quality
-  minAuthorityScore?: number; // minimum source authority
-  languageFilter?: string[]; // filter by programming language
-  boostDomains?: boolean; // apply domain-specific boosting
+  domainFilter?: string[];         // Filter by technology domains
+  contentTypeFilter?: string[];    // Filter by content type (code/docs/config/mixed)
+  languageFilter?: string[];       // Filter by programming language
+  minQualityScore?: number;        // Minimum quality score threshold (0-1)
+  minAuthorityScore?: number;      // Minimum source authority threshold (0-1)
 }
 
 export interface SearchResult {
