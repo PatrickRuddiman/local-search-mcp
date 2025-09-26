@@ -2,12 +2,48 @@
 
 ## Installation
 
+### Quick Start (Recommended)
+
 ```bash
+# Install globally from npm
+npm install -g local-search-mcp
+
+# Or run directly with npx (no installation needed)
+npx -y local-search-mcp
+```
+
+### Development Setup
+
+```bash
+# Clone and build from source
+git clone https://github.com/PatrickRuddiman/local-search-mcp.git
+cd local-search-mcp
 npm install
 npm run build
 ```
 
 ## Configuration
+
+### For NPM Package Installation
+
+Add to Claude Desktop's `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "local-search": {
+      "command": "npx",
+      "args": ["-y", "local-search-mcp"],
+      "env": {
+        "MCP_DATA_FOLDER": "/optional/custom/data/path",
+        "MCP_DOCS_FOLDER": "/optional/custom/docs/path"
+      }
+    }
+  }
+}
+```
+
+### For Source Installation
 
 Add to Claude Desktop's `claude_desktop_config.json`:
 
@@ -16,7 +52,11 @@ Add to Claude Desktop's `claude_desktop_config.json`:
   "mcpServers": {
     "local-search": {
       "command": "node",
-      "args": ["/absolute/path/to/local-search-mcp/build/index.js"]
+      "args": ["/absolute/path/to/local-search-mcp/build/index.js"],
+      "env": {
+        "MCP_DATA_FOLDER": "/optional/custom/data/path",
+        "MCP_DOCS_FOLDER": "/optional/custom/docs/path"
+      }
     }
   }
 }

@@ -30,15 +30,56 @@ A Model Context Protocol (MCP) server that enables AI assistants to perform sema
 - **SQLite Storage**: Efficient vector storage with optimized similarity search
 - **MCP Protocol**: Full compatibility with Claude Desktop and other MCP applications
 
+## Quick Start
+
+The fastest way to get started is using npx (no cloning or building required):
+
+```bash
+# Run directly with npx
+npx -y local-search-mcp
+
+# Or install globally
+npm install -g local-search-mcp
+```
+
+### MCP Configuration (npx)
+
+Add to Claude Desktop's `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "local-search": {
+      "command": "npx",
+      "args": ["-y", "local-search-mcp"],
+      "env": {
+        "MCP_DATA_FOLDER": "/optional/custom/data/path",
+        "MCP_DOCS_FOLDER": "/optional/custom/docs/path"
+      }
+    }
+  }
+}
+```
+
 ## Installation
 
 ### Prerequisites
 
 - **Node.js** >= 18.0.0
 - **npm** or **yarn** package manager
-- **Git** for cloning repositories
+- **Git** for cloning repositories (development only)
 
-### Setup
+### Option 1: NPM Package (Recommended)
+
+```bash
+# Install globally
+npm install -g local-search-mcp
+
+# Or use directly with npx (no installation needed)
+npx local-search-mcp
+```
+
+### Option 2: From Source (Development)
 
 ```bash
 # Clone the repository
@@ -54,8 +95,23 @@ npm run build
 
 ### MCP Configuration
 
-Add to Claude Desktop's `claude_desktop_config.json`:
+**For NPM package installation:**
+```json
+{
+  "mcpServers": {
+    "local-search": {
+      "command": "npx",
+      "args": ["-y", "local-search-mcp"],
+      "env": {
+        "MCP_DATA_FOLDER": "/optional/custom/data/path",
+        "MCP_DOCS_FOLDER": "/optional/custom/docs/path"
+      }
+    }
+  }
+}
+```
 
+**For source installation:**
 ```json
 {
   "mcpServers": {
@@ -128,11 +184,42 @@ The server processes these file types:
 - **[Model Context Protocol](https://modelcontextprotocol.io/)** - Standard for AI tool integration
 - **[repomix](https://github.com/yamadashy/repomix)** - Repository processing utility
 
+## Release Process
+
+This project uses automated semantic versioning and publishing through GitHub Actions and [semantic-release](https://semantic-release.gitbook.io/).
+
+### Commit Message Format
+
+Follow [Conventional Commits](https://www.conventionalcommits.org/) specification:
+
+```
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+**Types that trigger releases:**
+- `feat:` - New features (minor version bump)
+- `fix:` - Bug fixes (patch version bump)  
+- `perf:` - Performance improvements (patch version bump)
+- `BREAKING CHANGE:` - Breaking changes (major version bump)
+
+**Other types (no release):**
+- `docs:` - Documentation changes
+- `style:` - Code formatting
+- `refactor:` - Code refactoring
+- `test:` - Adding tests
+- `chore:` - Build process or auxiliary tool changes
+
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Submit a pull request
+2. Create a feature branch with descriptive name
+3. Make changes following conventional commit format
+4. Submit a pull request targeting the `main` branch
+5. Ensure all CI checks pass before requesting review
 
 ## Author
 
