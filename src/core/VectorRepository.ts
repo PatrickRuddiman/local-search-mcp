@@ -121,74 +121,60 @@ export class VectorRepository {
    * @param minScore Minimum similarity score (0-1)
    * @returns Sorted array of matching chunks with scores
    */
-  async searchSimilar(queryEmbedding: number[], limit: number = 10, minScore: number = 0.0): Promise<DocumentChunk[]> {
+  searchSimilar(queryEmbedding: number[], limit: number = 10, minScore: number = 0.0): DocumentChunk[] {
     const timer = log.time('vector-search');
-    log.debug('Starting sqlite-vec native vector search (ASYNC)', {
+    log.debug('Starting sqlite-vec native vector search', {
       queryEmbeddingSize: queryEmbedding.length,
       limit,
       minScore
     });
 
     try {
-      // Use setImmediate to avoid blocking main thread (2025 best practice)
-      return await new Promise((resolve, reject) => {
-        setImmediate(() => {
-          try {
-            // Convert query embedding to Float32Array for sqlite-vec
-            const queryVector = new Float32Array(queryEmbedding);
+      // Convert query embedding to Float32Array for sqlite-vec
+      const queryVector = new Float32Array(queryEmbedding);
 
-            // Use sqlite-vec's MATCH syntax with k parameter for KNN search
-            const stmt = this.db.prepare(`
-              SELECT
-                chunk_id, file_path, chunk_index, content,
-                chunk_offset, token_count, created_at,
-                distance
-              FROM vec_chunks
-              WHERE embedding MATCH ?
-                AND k = ?
-              ORDER BY distance
-            `);
+      // Use sqlite-vec's MATCH syntax with k parameter for KNN search
+      const stmt = this.db.prepare(`
+        SELECT
+          chunk_id, file_path, chunk_index, content,
+          chunk_offset, token_count, created_at,
+          distance
+        FROM vec_chunks
+        WHERE embedding MATCH ?
+          AND k = ?
+        ORDER BY distance
+      `);
 
-            const allRows = stmt.all(
-              queryVector,
-              limit
-            ) as VecChunkRow[];
+      const allRows = stmt.all(
+        queryVector,
+        limit
+      ) as VecChunkRow[];
 
-            // Filter by minimum score after retrieval
-            const rows = allRows.filter(row => (row.distance || 0) >= minScore);
+      // Filter by minimum score after retrieval
+      const rows = allRows.filter(row => (row.distance || 0) >= minScore);
 
-            timer();
-            log.info('sqlite-vec vector search completed (ASYNC)', {
-              totalResults: rows.length,
-              topScore: rows[0]?.distance || 0
-            });
-
-            const results = rows.map(row => ({
-              id: row.chunk_id,
-              filePath: row.file_path,
-              chunkIndex: row.chunk_index,
-              content: row.content,
-              embedding: [], // Don't return embeddings to save memory
-              score: row.distance || 0,
-              metadata: {
-                fileSize: 0,
-                lastModified: new Date(row.created_at),
-                chunkOffset: row.chunk_offset,
-                tokenCount: row.token_count
-              }
-            }));
-
-            resolve(results);
-          } catch (error: any) {
-            log.error('sqlite-vec search failed (ASYNC)', error);
-            reject(new StorageError(
-              `Native vector search failed: ${error.message}`,
-              error
-            ));
-          }
-        });
+      timer();
+      log.info('sqlite-vec vector search completed', {
+        totalResults: rows.length,
+        topScore: rows[0]?.distance || 0
       });
 
+      const results = rows.map(row => ({
+        id: row.chunk_id,
+        filePath: row.file_path,
+        chunkIndex: row.chunk_index,
+        content: row.content,
+        embedding: [], // Don't return embeddings to save memory
+        score: row.distance || 0,
+        metadata: {
+          fileSize: 0,
+          lastModified: new Date(row.created_at),
+          chunkOffset: row.chunk_offset,
+          tokenCount: row.token_count
+        }
+      }));
+
+      return results;
     } catch (error: any) {
       log.error('sqlite-vec search failed', error);
       throw new StorageError(
