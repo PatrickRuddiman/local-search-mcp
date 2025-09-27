@@ -110,7 +110,7 @@ export interface QualityAssessment {
     semanticDensity: number; // ratio of meaningful content to noise
     syntaxNoise: number; // amount of syntax/formatting noise
     documentationPresence: number; // presence of comments/docs
-    structuralClarity: number; // clear organization/structure
+    structuralClarity: number; // 0-1 score for clear organization/structure
   };
 }
 
