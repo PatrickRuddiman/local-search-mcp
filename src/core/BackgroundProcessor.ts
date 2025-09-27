@@ -90,14 +90,13 @@ export class BackgroundProcessor {
     jobId: string,
     url: string,
     filename: string,
-    docFolder?: string,
     options: FileDownloadOptions = {}
   ): Promise<void> {
     try {
       // Step 1: Download file (0-40%)
       this.jobManager.updateProgress(jobId, 5, 'Initializing file download...');
 
-      const targetFolder = docFolder || getMcpPaths().fetched;
+      const targetFolder = getMcpPaths().fetched;
       await ensureDirectoryExists(targetFolder, 'File download directory');
 
       this.jobManager.updateProgress(jobId, 10, 'Starting file download...');

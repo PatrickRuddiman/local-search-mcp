@@ -173,7 +173,6 @@ class LocalSearchServer {
             properties: {
               url: { type: 'string', description: 'URL of file to download' },
               filename: { type: 'string', description: 'Desired filename for saving' },
-              docFolder: { type: 'string', default: './docs/fetched', description: 'Folder to save file' },
               options: {
                 type: 'object',
                 properties: {
@@ -506,7 +505,6 @@ class LocalSearchServer {
       const jobId = this.jobManager.createJob('fetch_file', {
         url: args.url,
         filename: args.filename,
-        docFolder: args.docFolder,
         options: args.options || {}
       });
 
@@ -516,7 +514,6 @@ class LocalSearchServer {
           jobId,
           args.url,
           args.filename,
-          args.docFolder,
           args.options || {}
         ).catch(error => {
           this.jobManager.failJob(jobId, error.message);
