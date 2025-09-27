@@ -133,15 +133,113 @@ Once configured, the server provides semantic search capabilities within Claude 
 
 ## Tools
 
-### Core Tools
-- `search_documents` - Perform semantic similarity search
-- `get_file_details` - Retrieve file content with context
-- `fetch_repo` - Index GitHub repositories
-- `fetch_file` - Download and index files from URLs
+The Local Search MCP Server provides 7 tools for document indexing and semantic search:
 
-### Management Tools
-- `get_job_status` - Check async job progress
-- `list_active_jobs` - View all running jobs
+### 🔍 Search Tools
+
+#### `search_documents`
+Perform AI-enhanced semantic search with content classification, domain detection, and intelligent recommendations.
+
+**Parameters:**
+- `query` (required): Natural language search query
+- `options` (optional): Search configuration object
+  - `limit` (number, default: 10): Maximum results to return
+  - `minScore` (number, default: 0.7): Minimum similarity score (0-1)
+  - `includeMetadata` (boolean, default: true): Include metadata in results
+  - `domainFilter` (array): Filter by technology domains (e.g., ["javascript", "python"])
+  - `contentTypeFilter` (array): Filter by content type ("code", "docs", "config", "mixed")
+  - `languageFilter` (array): Filter by programming language (e.g., ["typescript", "javascript"])
+  - `minQualityScore` (number): Minimum content quality score (0-1)
+  - `minAuthorityScore` (number): Minimum source authority score (0-1)
+
+**Example:**
+```json
+{
+  "query": "async await promises javascript",
+  "options": {
+    "limit": 5,
+    "domainFilter": ["javascript"],
+    "contentTypeFilter": ["code", "docs"]
+  }
+}
+```
+
+#### `get_file_details`
+Retrieve detailed content of a specific file with surrounding chunk context.
+
+**Parameters:**
+- `filePath` (required): Absolute path to file
+- `chunkIndex` (optional): Specific chunk to retrieve with surrounding context
+- `contextSize` (number, default: 3): Number of chunks to include before and after target chunk
+
+### 📦 Content Management Tools
+
+#### `fetch_repo`
+Clone a Git repository (GitHub, Azure DevOps, etc.) using repomix, convert to markdown, and add to searchable index. Returns job ID for progress tracking.
+
+**Parameters:**
+- `repoUrl` (required): Git repository URL
+- `branch` (optional): Branch/tag/commit, defaults to main/master
+- `options` (optional): Repository processing options
+  - `includePatterns` (array, default: ["**/*.md", "**/*.mdx", "**/*.txt", "**/*.json", "**/*.rst", "**/*.yml", "**/*.yaml"]): File patterns to include
+  - `excludePatterns` (array, default: ["**/node_modules/**"]): File patterns to exclude
+  - `outputStyle` (string, default: "markdown"): Output format (fixed to markdown)
+  - `removeComments` (boolean, default: false): Remove comments from code files
+  - `showLineNumbers` (boolean, default: true): Show line numbers in output
+
+**Example:**
+```json
+{
+  "repoUrl": "https://github.com/microsoft/TypeScript",
+  "branch": "main",
+  "options": {
+    "includePatterns": ["**/*.md", "**/*.ts"],
+    "excludePatterns": ["**/node_modules/**", "**/tests/**"]
+  }
+}
+```
+
+#### `fetch_file`
+Download a single file from a URL and add it to the searchable index. Returns job ID for progress tracking.
+
+**Parameters:**
+- `url` (required): URL of file to download
+- `filename` (required): Desired filename for saving
+- `options` (optional): Download options
+  - `overwrite` (boolean, default: true): Whether to overwrite existing files
+  - `indexAfterSave` (boolean, default: true): Automatically index after download
+  - `maxFileSizeMB` (number, default: 1024): Maximum file size in MB
+
+#### `remove_file`
+Delete a file and all its associated chunks and embeddings from the index.
+
+**Parameters:**
+- `filePath` (required): Absolute path to file to remove
+
+### ⚙️ Job Management Tools
+
+#### `get_job_status`
+Get status and progress of an async job by ID with real-time accurate progress.
+
+**Parameters:**
+- `jobId` (required): Job ID returned from fetch_* operations
+
+**Returns:**
+- Job status: "running", "completed", or "failed"
+- Progress percentage (0-100)
+- Duration and timestamps
+- Error message if failed
+- Result data if completed
+
+#### `list_active_jobs`
+List all currently active (running) jobs with their status and progress.
+
+**Parameters:** None
+
+**Returns:**
+- List of active jobs with progress
+- Job statistics (total, completed, failed, average duration)
+- Real-time progress updates
 
 ## Documentation
 

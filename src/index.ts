@@ -210,7 +210,7 @@ class LocalSearchServer {
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
-      const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const requestId = `${Date.now()}-${crypto.randomUUID().replace(/-/g, '').substring(0, 9)}`;
 
       log.debug(`[${requestId}] Tool call received: ${name}`, { args: Object.keys(args || {}) });
 
@@ -421,13 +421,12 @@ class LocalSearchServer {
     try {
       log.debug(`[${requestId}] Removing file from index: ${args.filePath}`);
 
-      // Use VectorIndex directly for instant file deletion
-      const { VectorIndex } = await import('./core/VectorIndex.js');
-      const { DatabaseSchema } = await import('./core/DatabaseSchema.js');
-      const schema = new DatabaseSchema();
-      const vectorIndex = new VectorIndex(schema);
+      // Use ServiceLocator to get shared VectorIndex instance (more efficient)
+      const { ServiceLocator } = await import('./core/ServiceLocator.js');
+      const serviceLocator = ServiceLocator.getInstance();
+      const vectorIndex = serviceLocator.getVectorIndex();
       const deletedCount = await vectorIndex.deleteFile(args.filePath);
-      vectorIndex.close();
+      // Note: Don't close the shared instance, it will be reused
 
       const message = deletedCount > 0
         ? `Removed ${deletedCount} chunks for file: ${args.filePath}`

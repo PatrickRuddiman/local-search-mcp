@@ -270,7 +270,7 @@ export class JobManager {
    */
   private generateJobId(): string {
     const timestamp = Date.now().toString(36);
-    const random = Math.random().toString(36).substr(2, 8);
+    const random = crypto.randomUUID().replace(/-/g, '').substring(0, 8);
     return `job_${timestamp}_${random}`;
   }
 }

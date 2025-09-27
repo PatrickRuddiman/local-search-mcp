@@ -1,14 +1,40 @@
 import { DocumentChunkOptimized, TfidfAnalysisResult, SearchRecommendation, SuggestionStrategy } from '../types/index.js';
 import { log } from './Logger.js';
 
+export interface RecommendationEngineConfig {
+  maxQueryTerms?: number;
+  maxAnalysisDocuments?: number;
+}
+
 /**
  * TF-IDF based contextual search recommendation engine
  * Analyzes low-confidence search results and generates intelligent query suggestions
  */
 export class RecommendationEngine {
-  private static readonly MAX_ANALYSIS_DOCUMENTS = 5;
-  private static readonly MAX_QUERY_TERMS = 50;
+  private static readonly DEFAULT_MAX_ANALYSIS_DOCUMENTS = 5;
+  private static readonly DEFAULT_MAX_QUERY_TERMS = 8; // Reduced from 50 to more practical value
   private static readonly TFIDF_FORMULA = 'score = TF × log((docCount + 1) / (DF + 1))';
+
+  private readonly maxQueryTerms: number;
+  private readonly maxAnalysisDocuments: number;
+
+  constructor(config: RecommendationEngineConfig = {}) {
+    this.maxQueryTerms = config.maxQueryTerms ?? RecommendationEngine.DEFAULT_MAX_QUERY_TERMS;
+    this.maxAnalysisDocuments = config.maxAnalysisDocuments ?? RecommendationEngine.DEFAULT_MAX_ANALYSIS_DOCUMENTS;
+
+    // Validate configuration
+    if (this.maxQueryTerms < 1 || this.maxQueryTerms > 100) {
+      throw new Error(`maxQueryTerms must be between 1 and 100, got ${this.maxQueryTerms}`);
+    }
+    if (this.maxAnalysisDocuments < 1 || this.maxAnalysisDocuments > 50) {
+      throw new Error(`maxAnalysisDocuments must be between 1 and 50, got ${this.maxAnalysisDocuments}`);
+    }
+
+    log.debug('RecommendationEngine initialized', {
+      maxQueryTerms: this.maxQueryTerms,
+      maxAnalysisDocuments: this.maxAnalysisDocuments
+    });
+  }
 
   /**
    * Analyze low-confidence search results and generate contextual recommendations
@@ -28,7 +54,7 @@ export class RecommendationEngine {
 
     try {
       // Limit analysis to top results for performance
-      const analysisResults = results.slice(0, RecommendationEngine.MAX_ANALYSIS_DOCUMENTS);
+      const analysisResults = results.slice(0, this.maxAnalysisDocuments);
 
       if (analysisResults.length === 0) {
         log.debug('No results to analyze for recommendations');
@@ -37,8 +63,11 @@ export class RecommendationEngine {
 
       // Extract and tokenize query terms
       const queryTerms = this.tokenizeQuery(query);
-      if (queryTerms.length === 0 || queryTerms.length > RecommendationEngine.MAX_QUERY_TERMS) {
-        log.debug('Query has no terms or too many terms for analysis', { termCount: queryTerms.length });
+      if (queryTerms.length === 0 || queryTerms.length > this.maxQueryTerms) {
+        log.debug('Query has no terms or too many terms for analysis', { 
+          termCount: queryTerms.length,
+          maxAllowed: this.maxQueryTerms 
+        });
         return null;
       }
 

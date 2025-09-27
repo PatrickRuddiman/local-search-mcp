@@ -366,21 +366,21 @@ export class VectorRepository {
 
   /**
    * Store content metadata for enhanced document classification
-   * @param filePath File path
+   * @param chunkId Chunk identifier
    * @param metadata Enhanced content metadata
    */
-  async storeContentMetadata(filePath: string, metadata: ContentMetadata): Promise<void> {
+  async storeContentMetadata(chunkId: string, metadata: ContentMetadata): Promise<void> {
     try {
       const stmt = this.db.prepare(`
         INSERT OR REPLACE INTO content_metadata
-        (file_path, content_type, language, domain_tags, quality_score, 
+        (chunk_id, content_type, language, domain_tags, quality_score, 
          source_authority, file_extension, has_comments, has_documentation, 
          processed_content, raw_content, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       `);
 
       stmt.run(
-        filePath,
+        chunkId,
         metadata.contentType,
         metadata.language,
         JSON.stringify(metadata.domainTags),
@@ -394,14 +394,14 @@ export class VectorRepository {
       );
 
       log.debug('Content metadata stored', {
-        filePath: path.basename(filePath),
+        chunkId: chunkId.substring(0, 16) + '...',
         contentType: metadata.contentType,
         language: metadata.language,
         domainCount: metadata.domainTags.length
       });
 
     } catch (error: any) {
-      log.error('Failed to store content metadata', error, { filePath });
+      log.error('Failed to store content metadata', error, { chunkId });
       throw new StorageError(
         `Failed to store content metadata: ${error.message}`,
         error
@@ -410,21 +410,21 @@ export class VectorRepository {
   }
 
   /**
-   * Get content metadata for a file
-   * @param filePath File path
+   * Get content metadata for a chunk
+   * @param chunkId Chunk identifier
    * @returns Content metadata or null if not found
    */
-  async getContentMetadata(filePath: string): Promise<ContentMetadata | null> {
+  async getContentMetadata(chunkId: string): Promise<ContentMetadata | null> {
     try {
       const stmt = this.db.prepare(`
         SELECT content_type, language, domain_tags, quality_score, 
                source_authority, file_extension, has_comments, 
                has_documentation, processed_content, raw_content
         FROM content_metadata
-        WHERE file_path = ?
+        WHERE chunk_id = ?
       `);
 
-      const row = stmt.get(filePath) as any;
+      const row = stmt.get(chunkId) as any;
 
       if (!row) {
         return null;
@@ -444,7 +444,7 @@ export class VectorRepository {
       };
 
     } catch (error: any) {
-      log.error('Failed to get content metadata', error, { filePath });
+      log.error('Failed to get content metadata', error, { chunkId });
       return null;
     }
   }
@@ -479,7 +479,7 @@ export class VectorRepository {
                 cm.source_authority, cm.file_extension, cm.has_comments,
                 cm.has_documentation, cm.processed_content, cm.raw_content
               FROM vec_chunks vc
-              LEFT JOIN content_metadata cm ON vc.file_path = cm.file_path
+              LEFT JOIN content_metadata cm ON vc.chunk_id = cm.chunk_id
               WHERE vc.embedding MATCH ?
                 AND k = ?
               ORDER BY vc.distance

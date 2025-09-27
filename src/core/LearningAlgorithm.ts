@@ -10,6 +10,16 @@ export class LearningAlgorithm {
   private static readonly MIN_LEARNING_RATE = 0.01;
   private static readonly MAX_LEARNING_RATE = 0.1;
   private static readonly TFIDF_THRESHOLD_BOUNDS = { min: 0.1, max: 0.5 };
+  
+  // Strategy weight adjustment bounds for stable learning
+  private static readonly ADJUSTMENT_BOUNDS = { min: -0.1, max: 0.1 };
+  private static readonly STRATEGY_WEIGHT_BOUNDS = { min: 0.1, max: 3.0 };
+  
+  // Threshold adjustment constants for adaptive learning
+  private static readonly THRESHOLD_ADJUSTMENT = {
+    AGGRESSIVE: -0.02,  // Lower threshold for high effectiveness
+    CONSERVATIVE: 0.02  // Higher threshold for low effectiveness
+  };
 
   private params: AdaptiveLearningParams;
 
@@ -183,12 +193,18 @@ export class LearningAlgorithm {
     const adjustment = (effectivenessScore - 0.5) * this.params.learningRate;
 
     // Bound the adjustment to prevent extreme changes
-    const boundedAdjustment = Math.max(-0.1, Math.min(0.1, adjustment));
+    const boundedAdjustment = Math.max(
+      LearningAlgorithm.ADJUSTMENT_BOUNDS.min, 
+      Math.min(LearningAlgorithm.ADJUSTMENT_BOUNDS.max, adjustment)
+    );
 
     this.params.strategyWeights[strategy] += boundedAdjustment;
 
-    // Ensure weights stay in reasonable bounds (0.1 to 3.0)
-    this.params.strategyWeights[strategy] = Math.max(0.1, Math.min(3.0, this.params.strategyWeights[strategy]));
+    // Ensure weights stay in reasonable bounds
+    this.params.strategyWeights[strategy] = Math.max(
+      LearningAlgorithm.STRATEGY_WEIGHT_BOUNDS.min, 
+      Math.min(LearningAlgorithm.STRATEGY_WEIGHT_BOUNDS.max, this.params.strategyWeights[strategy])
+    );
 
     // Normalize weights to maintain relative relationships
     this.normalizeStrategyWeights();
@@ -211,9 +227,9 @@ export class LearningAlgorithm {
     let thresholdAdjustment = 0;
 
     if (recentScore > 0.7) {
-      thresholdAdjustment = -0.02; // Lower threshold to catch more terms
+      thresholdAdjustment = LearningAlgorithm.THRESHOLD_ADJUSTMENT.AGGRESSIVE; // Lower threshold to catch more terms
     } else if (recentScore < 0.3) {
-      thresholdAdjustment = 0.02; // Higher threshold to be more selective
+      thresholdAdjustment = LearningAlgorithm.THRESHOLD_ADJUSTMENT.CONSERVATIVE; // Higher threshold to be more selective
     }
 
     // Apply bounded adjustment

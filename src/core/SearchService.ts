@@ -47,8 +47,11 @@ export class SearchService {
 
     this.vectorIndex = new VectorIndex(schema, recommendationRepository);
 
-    // Initialize recommendation system components
-    this.recommendationEngine = new RecommendationEngine();
+    // Initialize recommendation system components with configurable parameters
+    this.recommendationEngine = new RecommendationEngine({
+      maxQueryTerms: 8,  // More practical limit than the previous 50
+      maxAnalysisDocuments: 5
+    });
     this.learningAlgorithm = new LearningAlgorithm();
 
     // Initialize domain extractor with database for vocabulary lookups

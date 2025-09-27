@@ -131,8 +131,10 @@ export class BackgroundProcessor {
     const fileProcessor = new FileProcessor(maxFileSizeMB);
     const textChunker = new TextChunker();
     const embeddingService = await EmbeddingService.getInstance();
-    const schema = new DatabaseSchema();
-    const vectorIndex = new VectorIndex(schema);
+    // Use ServiceLocator for efficient shared instance management
+    const { ServiceLocator } = await import('./ServiceLocator.js');
+    const serviceLocator = ServiceLocator.getInstance();
+    const vectorIndex = serviceLocator.getVectorIndex();
 
     try {
       this.jobManager.updateProgress(jobId, startProgress, 'Reading file content...');
@@ -166,7 +168,7 @@ export class BackgroundProcessor {
       }
 
       this.jobManager.updateProgress(jobId, startProgress + progressRange, `Indexed ${storedCount} chunks successfully`);
-      vectorIndex.close();
+      // Note: Don't close shared instance, it will be reused
 
     } catch (error: any) {
       throw new StorageError(`File processing failed for ${filePath}: ${error.message}`, error);
