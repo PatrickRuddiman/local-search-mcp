@@ -97,7 +97,7 @@ class LocalSearchServer {
       tools: [
         {
           name: 'search_documents',
-          description: 'Perform semantic search across the indexed documents. Fast database lookup operation.',
+          description: 'Perform AI-enhanced semantic search with content classification, domain detection, and intelligent recommendations.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -108,6 +108,11 @@ class LocalSearchServer {
                   limit: { type: 'number', default: 10, description: 'Maximum results to return' },
                   minScore: { type: 'number', default: 0.7, description: 'Minimum similarity score (0-1)' },
                   includeMetadata: { type: 'boolean', default: true, description: 'Include metadata in results' },
+                  domainFilter: { type: 'array', items: { type: 'string' }, description: 'Filter by technology domains (e.g., ["javascript", "python"])' },
+                  contentTypeFilter: { type: 'array', items: { type: 'string', enum: ['code', 'docs', 'config', 'mixed'] }, description: 'Filter by content type' },
+                  languageFilter: { type: 'array', items: { type: 'string' }, description: 'Filter by programming language (e.g., ["typescript", "javascript"])' },
+                  minQualityScore: { type: 'number', minimum: 0, maximum: 1, description: 'Minimum content quality score (0-1)' },
+                  minAuthorityScore: { type: 'number', minimum: 0, maximum: 1, description: 'Minimum source authority score (0-1)' },
                 },
               },
             },
@@ -257,10 +262,38 @@ class LocalSearchServer {
     });
   }
 
+  private formatSearchRecommendation(recommendation: any): string {
+    const strategyDescriptions = {
+      'term_removal': 'Removing low TF-IDF scoring terms',
+      'term_refinement': 'Replacing terms with better alternatives', 
+      'contextual_addition': 'Adding contextual terms for clarity'
+    };
+
+    const strategyDesc = strategyDescriptions[recommendation.suggestionStrategy as keyof typeof strategyDescriptions] || 'Optimizing search terms';
+    const suggestedQuery = recommendation.suggestedTerms.join(' ');
+    
+    let recommendationText = `\n\n🤖 **AI Search Recommendation** (${strategyDesc}):\n` +
+           `   💡 Try: "${suggestedQuery}"\n` +
+           `   🎯 Confidence: ${(recommendation.confidence * 100).toFixed(1)}%\n` +
+           `   📊 TF-IDF Threshold: ${recommendation.tfidfThreshold?.toFixed(3) || 'N/A'}\n` +
+           `   🔬 Analysis: ${recommendation.analyzedDocuments} documents examined`;
+
+    // Add strategy-specific details
+    if (recommendation.suggestionStrategy === 'term_removal') {
+      recommendationText += `\n   📉 Removed low-scoring terms that were reducing search precision`;
+    } else if (recommendation.suggestionStrategy === 'term_refinement') {
+      recommendationText += `\n   🔄 Replaced terms with higher TF-IDF scoring alternatives`;
+    } else if (recommendation.suggestionStrategy === 'contextual_addition') {
+      recommendationText += `\n   ➕ Added related terms found in high-scoring documents`;
+    }
+
+    return recommendationText;
+  }
+
   private async handleSearchDocuments(args: any, requestId: string) {
     try {
-      log.debug(`[${requestId}] Executing search_documents for query: "${args.query}"`);
-      const result = await this.searchService.searchDocuments(
+      log.debug(`[${requestId}] Executing enhanced search_documents for query: "${args.query}"`);
+      const result = await this.searchService.searchDocumentsEnhanced(
         args.query,
         args.options || {}
       );
@@ -276,12 +309,18 @@ class LocalSearchServer {
         warningMessage = `\n\nNote: Index is currently incomplete - ${activeJobs.length} active jobs running (${jobDetails}). Results may be incomplete. Poll job status for completion.`;
       }
 
+      // Format recommendation if present
+      let recommendationText = '';
+      if (result.recommendation) {
+        recommendationText = this.formatSearchRecommendation(result.recommendation);
+      }
+
       if (result.totalResults === 0) {
         return {
           content: [
             {
               type: 'text',
-              text: `${summary}${warningMessage}\n\nNo matching documents found.`,
+              text: `${summary}${warningMessage}${recommendationText}\n\nNo matching documents found.`,
             },
           ],
         };
@@ -289,16 +328,33 @@ class LocalSearchServer {
 
       const resultText = result.results
         .slice(0, 5)
-        .map((chunk, index) =>
-          `${index + 1}. ${chunk.filePath}:${chunk.chunkIndex} (Score: ${chunk.score?.toFixed(3)})\n   ${chunk.content.substring(0, 200)}...`
-        )
+        .map((chunk, index) => {
+          let resultLine = `${index + 1}. ${chunk.filePath}:${chunk.chunkIndex} (Score: ${chunk.score?.toFixed(3)})`;
+          
+          // Add AI metadata if available
+          if (chunk.contentMetadata) {
+            const meta = chunk.contentMetadata;
+            const metadataInfo = [
+              `Type: ${meta.contentType}`,
+              meta.language !== 'unknown' ? `Lang: ${meta.language}` : null,
+              meta.domainTags?.length > 0 ? `Domains: [${meta.domainTags.slice(0, 2).join(', ')}]` : null,
+              `Quality: ${meta.qualityScore.toFixed(2)}`,
+              `Authority: ${meta.sourceAuthority.toFixed(2)}`
+            ].filter(Boolean).join(' | ');
+            
+            resultLine += `\n   📊 ${metadataInfo}`;
+          }
+          
+          resultLine += `\n   ${chunk.content.substring(0, 180)}...`;
+          return resultLine;
+        })
         .join('\n\n');
 
       return {
         content: [
           {
             type: 'text',
-            text: `${summary}${warningMessage}\n\nTop Results:\n${resultText}`,
+            text: `${summary}${warningMessage}${recommendationText}\n\nTop Results:\n${resultText}`,
           },
           {
             type: 'text',
@@ -366,7 +422,10 @@ class LocalSearchServer {
       log.debug(`[${requestId}] Removing file from index: ${args.filePath}`);
 
       // Use VectorIndex directly for instant file deletion
-      const vectorIndex = new (await import('./core/VectorIndex.js')).VectorIndex();
+      const { VectorIndex } = await import('./core/VectorIndex.js');
+      const { DatabaseSchema } = await import('./core/DatabaseSchema.js');
+      const schema = new DatabaseSchema();
+      const vectorIndex = new VectorIndex(schema);
       const deletedCount = await vectorIndex.deleteFile(args.filePath);
       vectorIndex.close();
 

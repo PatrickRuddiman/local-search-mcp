@@ -25,6 +25,11 @@ Execute semantic similarity search across all indexed documents using natural la
 | `options.limit` | `number` | ❌ | `10` | Maximum number of results to return (1-1000) |
 | `options.minScore` | `number` | ❌ | `0.7` | Minimum similarity score threshold (0.0-1.0) |
 | `options.includeMetadata` | `boolean` | ❌ | `true` | Include document metadata in results |
+| `options.domainFilter` | `string[]` | ❌ | - | Filter by technology domains (e.g., ["javascript", "python"]) - automatically enables domain boosting |
+| `options.contentTypeFilter` | `string[]` | ❌ | - | Filter by content type: ["code", "docs", "config", "mixed"] |
+| `options.languageFilter` | `string[]` | ❌ | - | Filter by programming language (e.g., ["typescript", "javascript"]) |
+| `options.minQualityScore` | `number` | ❌ | - | Minimum content quality score threshold (0.0-1.0) |
+| `options.minAuthorityScore` | `number` | ❌ | - | Minimum source authority score threshold (0.0-1.0) |
 
 #### Response Schema
 
@@ -33,7 +38,7 @@ Execute semantic similarity search across all indexed documents using natural la
   "content": [
     {
       "type": "text",
-      "text": "Found N results for \"query\" in Tms"
+      "text": "Found N results for \"query\" in Tms\n\n🔍 **Search Recommendation** (strategy description):\n   Try searching for: \"suggested query\"\n   Confidence: 85.2%\n   Based on analysis of X/Y documents"
     },
     {
       "type": "text",
@@ -42,6 +47,8 @@ Execute semantic similarity search across all indexed documents using natural la
   ]
 }
 ```
+
+**Note**: Search recommendations appear automatically when queries have low confidence (few results, low scores, or many terms). The system uses TF-IDF analysis to suggest refined search terms that may yield better results.
 
 #### Result Object Structure
 
@@ -257,15 +264,6 @@ export interface DocumentChunk {
   };
 }
 
-export interface IndexingResult {
-  totalFiles: number;           // Total files discovered
-  processedFiles: number;       // Successfully indexed files
-  totalChunks: number;          // Total chunks created
-  totalTokens: number;          // Total tokens processed
-  processingTime: number;       // Processing duration in ms
-  errors: string[];             // Error messages from failed files
-}
-
 export interface SearchResult {
   query: string;                // Original search query
   results: DocumentChunk[];     // Ranked search results
@@ -307,23 +305,6 @@ export interface JobStatistics {
 ### Configuration Types
 
 ```typescript
-export interface ConcurrencyConfig {
-  maxFileProcessingConcurrency?: number;    // File processing parallelism
-  maxDirectoryConcurrency?: number;         // Directory traversal
-  maxEmbeddingConcurrency?: number;         // Embedding generation
-  maxRepositoryConcurrency?: number;        // Repository operations
-  maxFileWatcherConcurrency?: number;       // File watcher operations
-}
-
-export interface IndexOptions {
-  chunkSize?: number;            // Characters per chunk (100-2000)
-  overlap?: number;              // Overlap between chunks (0-500)
-  maxFiles?: number;             // Maximum files to index
-  fileTypes?: string[];          // Allowed file extensions
-  includePatterns?: string[];    // Glob patterns to include
-  excludePatterns?: string[];    // Glob patterns to exclude
-  useGPU?: boolean;              // Enable GPU acceleration
-}
 
 export interface SearchOptions {
   limit?: number;                // Max results to return
@@ -337,15 +318,6 @@ export interface SearchOptions {
 ### Service Options
 
 ```typescript
-export interface RepoOptions {
-  repoUrl: string;              // GitHub repository URL
-  branch?: string;              // Branch/tag/commit
-  includePatterns?: string[];   // File inclusion patterns
-  excludePatterns?: string[];   // File exclusion patterns
-  outputStyle?: 'markdown';     // Output format
-  removeComments?: boolean;     // Strip code comments
-  showLineNumbers?: boolean;     // Include line numbers
-}
 
 export interface FileDownloadOptions {
   url: string;                  // Download URL
@@ -379,6 +351,36 @@ await search_documents({
     minScore: 0.8
   }
 });
+```
+
+### Search with Recommendations
+
+When search queries have low confidence (few results, low similarity scores, or too many terms), the system automatically provides intelligent recommendations:
+
+```typescript
+// Query with few results - triggers recommendation
+await search_documents({
+  query: "nonexistent feature xyz"
+});
+
+// Query with too many terms - triggers recommendation  
+await search_documents({
+  query: "authentication security token validation middleware error handling debug logs"
+});
+```
+
+**Response includes recommendations:**
+```
+Found 2 results for "nonexistent feature xyz" in 45ms
+
+🔍 **Search Recommendation** (Simplifying your search by removing less relevant terms):
+   Try searching for: "feature authentication"
+   Confidence: 87.3%
+   Based on analysis of 1,250/2,500 documents
+
+Top Results:
+1. /docs/auth.md:15 (Score: 0.892)
+   Authentication features and implementation...
 ```
 
 ### Repository Processing
