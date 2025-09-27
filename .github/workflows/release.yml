@@ -70,6 +70,12 @@ jobs:
           }
           EOF
 
+      - name: Configure Git with elevated token
+        run: |
+          git remote set-url origin https://x-access-token:${{ steps.access-token.outputs.token }}@github.com/${{ github.repository }}.git
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Run semantic release
         env:
           GITHUB_TOKEN: ${{ steps.access-token.outputs.token }}
