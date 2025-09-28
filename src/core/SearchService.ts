@@ -363,11 +363,11 @@ export class SearchService {
           const cachedRec = await this.vectorIndex.getRecommendation(query);
           if (cachedRec) {
             contextualRecommendations = cachedRec;
-        log.debug('Using cached recommendation', {
-          recommendationId: cachedRec.id,
-          strategy: cachedRec.suggestionStrategy,
-          confidence: cachedRec.confidence
-        });
+            log.debug('Using cached recommendation', {
+              recommendationId: cachedRec.id,
+              strategy: cachedRec.suggestionStrategy,
+              confidence: cachedRec.confidence
+            });
           }
         } catch (error) {
           log.warn('Failed to check cached recommendations', error as any);

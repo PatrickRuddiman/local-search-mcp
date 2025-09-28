@@ -393,7 +393,7 @@ export class BackgroundProcessor {
 
       request.on('timeout', () => {
         request.destroy();
-  reject(new Error(`Download timeout`));
+  reject(new Error('Download timeout'));
       });
 
       request.on('error', (error: any) => {
