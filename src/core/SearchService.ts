@@ -367,7 +367,7 @@ export class SearchService {
           recommendationId: cachedRec.id,
           strategy: cachedRec.suggestionStrategy,
           confidence: cachedRec.confidence
-        } as any);
+        });
           }
         } catch (error) {
           log.warn('Failed to check cached recommendations', error as any);
