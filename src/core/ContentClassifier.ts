@@ -21,23 +21,239 @@ export class ContentClassifier {
     '.plist', '.properties', '.env', '.dockerfile'
   ]);
 
+  // JavaScript patterns
+  /** Matches common JavaScript keywords and syntax (function, const, let, var, arrow functions, async/await) */
+  private static readonly JS_KEYWORDS = /\b(?:function|const|let|var|=>|async|await)\b/;
+  /** Matches ES6 import statements */
+  private static readonly JS_IMPORT = /\bimport\s+.*\bfrom\b/;
+  /** Matches CommonJS require statements */
+  private static readonly JS_REQUIRE = /\brequire\s*\(/;
+
+  // TypeScript patterns
+  /** Matches TypeScript interface declarations */
+  private static readonly TS_INTERFACE = /\binterface\b/;
+  /** Matches TypeScript type alias declarations */
+  private static readonly TS_TYPE_ALIAS = /\btype\s+\w+\s*=/;
+  /** Matches TypeScript type annotations (e.g., : string[], : number | string) */
+  private static readonly TS_TYPE_ANNOTATION = /:\s*\w+(?:\[\])?(?:\s*\|\s*\w+(?:\[\])?)*\s*[;,=]/;
+
+  // Python patterns
+  /** Matches Python function definitions */
+  private static readonly PY_DEF = /\bdef\s+\w+\s*\(/;
+  /** Matches Python import statements */
+  private static readonly PY_IMPORT = /\bimport\s+\w+/;
+  /** Matches Python from-import statements */
+  private static readonly PY_FROM_IMPORT = /\bfrom\s+\w+\s+import\b/;
+  /** Matches Python class definitions */
+  private static readonly PY_CLASS = /\bclass\s+\w+:/;
+
+  // Java patterns
+  /** Matches Java public class declarations */
+  private static readonly JAVA_PUBLIC_CLASS = /\bpublic\s+class\b/;
+  /** Matches Java private member declarations */
+  private static readonly JAVA_PRIVATE_MEMBER = /\bprivate\s+\w+/;
+  /** Matches Java import statements */
+  private static readonly JAVA_IMPORT = /\bimport\s+[\w.]+;/;
+  /** Matches Java main method signature */
+  private static readonly JAVA_MAIN = /\bpublic\s+static\s+void\s+main\b/;
+
+  // C++ patterns
+  /** Matches C++ include directives */
+  private static readonly CPP_INCLUDE = /\b#include\s*</;
+  /** Matches C++ std namespace usage */
+  private static readonly CPP_STD = /\bstd::\w+/;
+  /** Matches C++ namespace declarations */
+  private static readonly CPP_NAMESPACE = /\bnamespace\s+\w+/;
+  /** Matches C++ class definitions */
+  private static readonly CPP_CLASS = /\bclass\s+\w+\s*{/;
+
+  // C# patterns
+  /** Matches C# using directives */
+  private static readonly CSHARP_USING = /\busing\s+\w+;/;
+  /** Matches C# namespace declarations */
+  private static readonly CSHARP_NAMESPACE = /\bnamespace\s+\w+/;
+  /** Matches C# public class declarations */
+  private static readonly CSHARP_CLASS = /\bpublic\s+class\s+\w+/;
+
+  // Go patterns
+  /** Matches Go package declarations */
+  private static readonly GO_PACKAGE = /\bpackage\s+\w+/;
+  /** Matches Go function definitions */
+  private static readonly GO_FUNC = /\bfunc\s+\w+\s*\(/;
+  /** Matches Go import block */
+  private static readonly GO_IMPORT_BLOCK = /\bimport\s+\(/;
+
+  // Rust patterns
+  /** Matches Rust function definitions */
+  private static readonly RUST_FN = /\bfn\s+\w+\s*\(/;
+  /** Matches Rust use statements */
+  private static readonly RUST_USE = /\buse\s+\w+::/;
+  /** Matches Rust struct definitions */
+  private static readonly RUST_STRUCT = /\bstruct\s+\w+/;
+  /** Matches Rust impl blocks */
+  private static readonly RUST_IMPL = /\bimpl\s+\w+/;
+
+  // PHP patterns
+  /** Matches PHP opening tag */
+  private static readonly PHP_TAG = /\b<\?php\b/;
+  /** Matches PHP function definitions */
+  private static readonly PHP_FUNCTION = /\bfunction\s+\w+\s*\(/;
+  /** Matches PHP class definitions */
+  private static readonly PHP_CLASS = /\bclass\s+\w+/;
+
+  // Ruby patterns
+  /** Matches Ruby method definitions */
+  private static readonly RUBY_DEF = /\bdef\s+\w+/;
+  /** Matches Ruby class definitions */
+  private static readonly RUBY_CLASS = /\bclass\s+\w+/;
+  /** Matches Ruby require statements */
+  private static readonly RUBY_REQUIRE = /\brequire\s+['"]/;
+  /** Matches Ruby end keyword */
+  private static readonly RUBY_END = /\bend\b/;
+
+  // Shell patterns
+  /** Matches shebang lines */
+  private static readonly SHELL_SHEBANG = /\b#!/;
+  /** Matches shell if statements */
+  private static readonly SHELL_IF = /\bif\s+\[/;
+  /** Matches shell echo statements */
+  private static readonly SHELL_ECHO = /\becho\s+/;
+  /** Matches shell export statements */
+  private static readonly SHELL_EXPORT = /\bexport\s+\w+=/;
+
+  // SQL patterns
+  /** Matches SQL SELECT statements */
+  private static readonly SQL_SELECT = /\bSELECT\s+/;
+  /** Matches SQL FROM clauses */
+  private static readonly SQL_FROM = /\bFROM\s+\w+/;
+  /** Matches SQL WHERE clauses */
+  private static readonly SQL_WHERE = /\bWHERE\s+/;
+  /** Matches SQL INSERT INTO statements (case-insensitive) */
+  private static readonly SQL_INSERT_INTO = /\bINSERT\s+INTO\b/i;
+
+  // HTML patterns
+  /** Matches HTML <html> tag */
+  private static readonly HTML_TAG = /<html\b/;
+  /** Matches HTML <div> tag */
+  private static readonly HTML_DIV = /<div\b/;
+  /** Matches HTML <script> tag */
+  private static readonly HTML_SCRIPT = /<script\b/;
+  /** Matches HTML <style> tag */
+  private static readonly HTML_STYLE = /<style\b/;
+
+  // CSS patterns
+  /** Matches CSS rule blocks */
+  private static readonly CSS_BLOCK = /\{[^}]*\}/;
+  /** Matches CSS class selectors */
+  private static readonly CSS_CLASS_SELECTOR = /\.[a-zA-Z-]+\s*{/;
+  /** Matches CSS @media queries */
+  private static readonly CSS_MEDIA = /@media\s*\(/;
+
+  // YAML patterns
+  /** Matches YAML key-value pairs */
+  private static readonly YAML_KEY_VALUE = /^\s*\w+:\s*/;
+  /** Matches YAML list items */
+  private static readonly YAML_LIST_ITEM = /^\s*-\s+/;
+  /** Matches YAML document start */
+  private static readonly YAML_DOC_START = /^\s*---\s*$/m;
+
+  // JSON patterns
+  /** Matches JSON object start */
+  private static readonly JSON_OBJECT_START = /^\s*{/;
+  /** Matches JSON array start */
+  private static readonly JSON_ARRAY_START = /^\s*\[/;
+  /** Matches JSON key-value pairs */
+  private static readonly JSON_KEY_VALUE = /"[\w-]+"\s*:\s*/;
+
   private static readonly LANGUAGE_PATTERNS = {
-    javascript: [/\b(?:function|const|let|var|=>|async|await)\b/, /\bimport\s+.*\bfrom\b/, /\brequire\s*\(/],
-    typescript: [/\binterface\b/, /\btype\s+\w+\s*=/, /:\s*\w+(?:\[\])?(?:\s*\|\s*\w+(?:\[\])?)*\s*[;,=]/],
-    python: [/\bdef\s+\w+\s*\(/, /\bimport\s+\w+/, /\bfrom\s+\w+\s+import\b/, /\bclass\s+\w+:/],
-    java: [/\bpublic\s+class\b/, /\bprivate\s+\w+/, /\bimport\s+[\w.]+;/, /\bpublic\s+static\s+void\s+main\b/],
-    cpp: [/\b#include\s*</, /\bstd::\w+/, /\bnamespace\s+\w+/, /\bclass\s+\w+\s*{/],
-    csharp: [/\busing\s+\w+;/, /\bnamespace\s+\w+/, /\bpublic\s+class\s+\w+/],
-    go: [/\bpackage\s+\w+/, /\bfunc\s+\w+\s*\(/, /\bimport\s+\(/],
-    rust: [/\bfn\s+\w+\s*\(/, /\buse\s+\w+::/, /\bstruct\s+\w+/, /\bimpl\s+\w+/],
-    php: [/\b<\?php\b/, /\bfunction\s+\w+\s*\(/, /\bclass\s+\w+/],
-    ruby: [/\bdef\s+\w+/, /\bclass\s+\w+/, /\brequire\s+['"]/, /\bend\b/],
-    shell: [/\b#!/, /\bif\s+\[/, /\becho\s+/, /\bexport\s+\w+=/],
-    sql: [/\bSELECT\s+/, /\bFROM\s+\w+/, /\bWHERE\s+/, /\bINSERT\s+INTO\b/i],
-    html: [/<html\b/, /<div\b/, /<script\b/, /<style\b/],
-    css: [/\{[^}]*\}/, /\.[a-zA-Z-]+\s*{/, /@media\s*\(/],
-    yaml: [/^\s*\w+:\s*/, /^\s*-\s+/, /^\s*---\s*$/m],
-    json: [/^\s*{/, /^\s*\[/, /"[\w-]+"\s*:\s*/]
+    javascript: [
+      ContentClassifier.JS_KEYWORDS,
+      ContentClassifier.JS_IMPORT,
+      ContentClassifier.JS_REQUIRE
+    ],
+    typescript: [
+      ContentClassifier.TS_INTERFACE,
+      ContentClassifier.TS_TYPE_ALIAS,
+      ContentClassifier.TS_TYPE_ANNOTATION
+    ],
+    python: [
+      ContentClassifier.PY_DEF,
+      ContentClassifier.PY_IMPORT,
+      ContentClassifier.PY_FROM_IMPORT,
+      ContentClassifier.PY_CLASS
+    ],
+    java: [
+      ContentClassifier.JAVA_PUBLIC_CLASS,
+      ContentClassifier.JAVA_PRIVATE_MEMBER,
+      ContentClassifier.JAVA_IMPORT,
+      ContentClassifier.JAVA_MAIN
+    ],
+    cpp: [
+      ContentClassifier.CPP_INCLUDE,
+      ContentClassifier.CPP_STD,
+      ContentClassifier.CPP_NAMESPACE,
+      ContentClassifier.CPP_CLASS
+    ],
+    csharp: [
+      ContentClassifier.CSHARP_USING,
+      ContentClassifier.CSHARP_NAMESPACE,
+      ContentClassifier.CSHARP_CLASS
+    ],
+    go: [
+      ContentClassifier.GO_PACKAGE,
+      ContentClassifier.GO_FUNC,
+      ContentClassifier.GO_IMPORT_BLOCK
+    ],
+    rust: [
+      ContentClassifier.RUST_FN,
+      ContentClassifier.RUST_USE,
+      ContentClassifier.RUST_STRUCT,
+      ContentClassifier.RUST_IMPL
+    ],
+    php: [
+      ContentClassifier.PHP_TAG,
+      ContentClassifier.PHP_FUNCTION,
+      ContentClassifier.PHP_CLASS
+    ],
+    ruby: [
+      ContentClassifier.RUBY_DEF,
+      ContentClassifier.RUBY_CLASS,
+      ContentClassifier.RUBY_REQUIRE,
+      ContentClassifier.RUBY_END
+    ],
+    shell: [
+      ContentClassifier.SHELL_SHEBANG,
+      ContentClassifier.SHELL_IF,
+      ContentClassifier.SHELL_ECHO,
+      ContentClassifier.SHELL_EXPORT
+    ],
+    sql: [
+      ContentClassifier.SQL_SELECT,
+      ContentClassifier.SQL_FROM,
+      ContentClassifier.SQL_WHERE,
+      ContentClassifier.SQL_INSERT_INTO
+    ],
+    html: [
+      ContentClassifier.HTML_TAG,
+      ContentClassifier.HTML_DIV,
+      ContentClassifier.HTML_SCRIPT,
+      ContentClassifier.HTML_STYLE
+    ],
+    css: [
+      ContentClassifier.CSS_BLOCK,
+      ContentClassifier.CSS_CLASS_SELECTOR,
+      ContentClassifier.CSS_MEDIA
+    ],
+    yaml: [
+      ContentClassifier.YAML_KEY_VALUE,
+      ContentClassifier.YAML_LIST_ITEM,
+      ContentClassifier.YAML_DOC_START
+    ],
+    json: [
+      ContentClassifier.JSON_OBJECT_START,
+      ContentClassifier.JSON_ARRAY_START,
+      ContentClassifier.JSON_KEY_VALUE
+    ]
   };
 
   private static readonly AUTHORITY_PATTERNS = [

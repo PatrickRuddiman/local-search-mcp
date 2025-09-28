@@ -12,7 +12,7 @@ export interface RecommendationEngineConfig {
  */
 export class RecommendationEngine {
   private static readonly DEFAULT_MAX_ANALYSIS_DOCUMENTS = 5;
-  private static readonly DEFAULT_MAX_QUERY_TERMS = 8; // Reduced from 50 to more practical value
+  private static readonly DEFAULT_MAX_QUERY_TERMS = 8;
   private static readonly TFIDF_FORMULA = 'score = TF × log((docCount + 1) / (DF + 1))';
   // Default expiry for generated recommendations (30 days)
   private static readonly RECOMMENDATION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
