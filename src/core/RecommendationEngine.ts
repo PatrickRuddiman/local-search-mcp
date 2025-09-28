@@ -14,6 +14,8 @@ export class RecommendationEngine {
   private static readonly DEFAULT_MAX_ANALYSIS_DOCUMENTS = 5;
   private static readonly DEFAULT_MAX_QUERY_TERMS = 8; // Reduced from 50 to more practical value
   private static readonly TFIDF_FORMULA = 'score = TF × log((docCount + 1) / (DF + 1))';
+  // Default expiry for generated recommendations (30 days)
+  private static readonly RECOMMENDATION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 
   private readonly maxQueryTerms: number;
   private readonly maxAnalysisDocuments: number;
@@ -220,7 +222,7 @@ export class RecommendationEngine {
         tfidfThreshold: currentThreshold,
         confidence: mostProblematicTerm.confidence,
         generatedAt: new Date(),
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+  expiresAt: new Date(Date.now() + RecommendationEngine.RECOMMENDATION_EXPIRY_MS), // 30 days
         totalDocuments: 0, // Will be set by caller
         analyzedDocuments: tfidfResults.length
       };
@@ -236,7 +238,7 @@ export class RecommendationEngine {
         tfidfThreshold: currentThreshold,
         confidence: 0.7, // Moderate confidence for refinements
         generatedAt: new Date(),
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+  expiresAt: new Date(Date.now() + RecommendationEngine.RECOMMENDATION_EXPIRY_MS),
         totalDocuments: 0,
         analyzedDocuments: tfidfResults.length
       };
@@ -254,7 +256,7 @@ export class RecommendationEngine {
         tfidfThreshold: currentThreshold,
         confidence: 0.6, // Lower confidence for additions
         generatedAt: new Date(),
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+  expiresAt: new Date(Date.now() + RecommendationEngine.RECOMMENDATION_EXPIRY_MS),
         totalDocuments: 0,
         analyzedDocuments: tfidfResults.length
       };
