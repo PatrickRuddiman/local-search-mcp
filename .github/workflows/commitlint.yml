@@ -3,8 +3,11 @@ on:
   pull_request:
     types: [opened, edited, synchronize]
 jobs:
-  lint:
+  lint-fix:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -25,8 +28,8 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -e
-          mkdir -p /home/runner/.config/fabric
-          touch /home/runner/.config/fabric/.env
+          mkdir -p "$HOME/.config/fabric"
+          touch "$HOME/.config/fabric/.env"
           fabric -U
           # Lint the squash commit (title + desc)
           echo -e "${{ github.event.pull_request.title }}\n\n${{ github.event.pull_request.body }}" | npx -y commitlint && exit 0
@@ -39,10 +42,8 @@ jobs:
             git --no-pager diff $COMMIT^ $COMMIT | fabric -m gpt-5-mini -p summarize_git_diff >> "$TMP_CHANGELOG"
             echo -e "\n---\n" >> "$TMP_CHANGELOG"
           done
-          NEW_BODY=$(cat "$TMP_CHANGELOG" | fabric -m gpt-5-mini "write a detailed and clear pull request description based on the following commit summaries (dont add comentary as it will be directly used in the pr):")
+          NEW_BODY=$(cat "$TMP_CHANGELOG" | fabric -m gpt-5-mini "write a detailed conventional commits compatible pull request description based on the following commit summaries (dont add comentary as it will be directly used in the pr):")
           PR_COMMITS=$(gh pr view $PR_NUMBER --json commits | jq -r '.commits[] | "\(.messageHeadline): \(.messageBody)"' | paste -sd ", " -)
           NEW_TITLE=$(fabric -m gpt-5-mini "write a conventional commits compatible title for a PR with the following commits and PR description: $PR_COMMITS; $NEW_BODY")
           rm -f "$TMP_CHANGELOG"
-          echo "Updating PR title to: $NEW_TITLE"
-          echo "Updating PR body to: $NEW_BODY"
           gh pr edit $PR_NUMBER --title "$NEW_TITLE" --body "$NEW_BODY"
