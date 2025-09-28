@@ -12,7 +12,7 @@ export interface RecommendationEngineConfig {
  */
 export class RecommendationEngine {
   private static readonly DEFAULT_MAX_ANALYSIS_DOCUMENTS = 5;
-  private static readonly DEFAULT_MAX_QUERY_TERMS = 8; // Reduced from 50 to more practical value
+  private static readonly DEFAULT_MAX_QUERY_TERMS = 8;
   private static readonly TFIDF_FORMULA = 'score = TF × log((docCount + 1) / (DF + 1))';
 
   private readonly maxQueryTerms: number;
