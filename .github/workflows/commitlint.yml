@@ -24,6 +24,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -e
+          touch /home/runner/.config/fabric/.env
           # Lint the squash commit (title + desc)
           echo -e "${{ github.event.pull_request.title }}\n\n${{ github.event.pull_request.body }}" | npx -y commitlint && exit 0
           # If not compliant, generate new title and desc using fabric
