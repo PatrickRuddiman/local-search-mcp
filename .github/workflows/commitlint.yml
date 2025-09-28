@@ -19,12 +19,15 @@ jobs:
       - name: Lint PR squash commit (title + desc) and auto-fix with fabric if needed
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_BASE_URL: "https://api.openai.com/v1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
           set -e
+          mkdir -p /home/runner/.config/fabric
           touch /home/runner/.config/fabric/.env
+          fabric -U
           # Lint the squash commit (title + desc)
           echo -e "${{ github.event.pull_request.title }}\n\n${{ github.event.pull_request.body }}" | npx -y commitlint && exit 0
           # Summarize each commit's diff and append to a temporary file
@@ -36,7 +39,7 @@ jobs:
             git --no-pager diff $COMMIT^ $COMMIT | fabric -m gpt-5-mini -p summarize_git_diff >> "$TMP_CHANGELOG"
             echo -e "\n---\n" >> "$TMP_CHANGELOG"
           done
-          NEW_BODY=$(cat "$TMP_CHANGELOG" | fabric -p write_pull-request -m gpt-5-mini)
+          NEW_BODY=$(cat "$TMP_CHANGELOG" | fabric -m gpt-5-mini "write a detailed and clear pull request description based on the following commit summaries (dont add comentary as it will be directly used in the pr):")
           PR_COMMITS=$(gh pr view $PR_NUMBER --json commits | jq -r '.commits[] | "\(.messageHeadline): \(.messageBody)"' | paste -sd ", " -)
           NEW_TITLE=$(fabric -m gpt-5-mini "write a conventional commits compatible title for a PR with the following commits and PR description: $PR_COMMITS; $NEW_BODY")
           rm -f "$TMP_CHANGELOG"
