@@ -1,3 +1,119 @@
+# [2.0.0](https://github.com/PatrickRuddiman/local-search-mcp/compare/v1.0.0...v2.0.0) (2025-09-28)
+
+
+* feat(Search) Add domain-aware search, content classification, and recommendations ([#24](https://github.com/PatrickRuddiman/local-search-mcp/issues/24)) ([2a298c2](https://github.com/PatrickRuddiman/local-search-mcp/commit/2a298c2e35ccd8990da40a9330f51ee07e4731ea))
+
+
+### BREAKING CHANGES
+
+* VectorIndex constructor signature and responsibilities
+change — it now accepts a DatabaseSchema and uses a VectorRepository;
+optionally accepts a RecommendationRepository. Update any direct
+instantiations of VectorIndex to pass a DatabaseSchema and adjust to the
+repository-backed API and updated types.
+
+* ﻿feat(search): add domain-aware search and metadata
+
+- Implement domain detection and intent analysis, integrate DomainExtractor
+- Add ContentClassifier/ContentEnhancer pipeline and processFileWithMetadata
+- Store and retrieve per-file ContentMetadata in VectorRepository; join on search
+- Add searchDocumentsEnhanced with domain boosting and enhanced filters:
+  domainFilter, contentTypeFilter, languageFilter,
+  minQualityScore, minAuthorityScore
+- Update index/tool schema and CLI handler to call enhanced search and show
+  content metadata (type, language, domains, quality, authority)
+- Extend docs and types with new search options and remove deprecated
+  interfaces (ConcurrencyConfig, IndexOptions, RepoOptions, IndexingResult)
+- Remove ProgressSubscription interface and refine recommendation formatting
+
+* Update src/core/VectorRepository.ts
+
+Co-authored-by: Copilot <175728472+Copilot@users.noreply.github.com>
+
+* ﻿refactor(core): centralize services and tighten configs
+
+- Add ServiceLocator singleton to manage shared core instances
+- Provide lazy getters, dispose/reset, and instance stats
+- Replace per-operation VectorIndex creation with shared instance
+- Avoid closing shared VectorIndex to allow reuse
+- Rename VectorRepository metadata key from file_path to chunk_id
+- Update SQL queries, API params, and logs to use chunk_id
+- Replace Math.random()-based IDs with crypto.randomUUID() variants
+- Make RecommendationEngine configurable (maxQueryTerms=8, maxAnalysisDocs=5)
+- Validate config ranges and log tokenization/debug info
+- Introduce LearningAlgorithm constants for adjustments and weights
+- Expand README Tools section with detailed API parameters/examples
+* Rename content metadata key file_path to chunk_id.
+Update external callers and run DB migrations to rename column and params.
+
+* Update src/types/index.ts
+
+Co-authored-by: Copilot <175728472+Copilot@users.noreply.github.com>
+
+* ﻿refactor(content): standardize annotation format
+
+- Replace Unicode angle-bracket annotations (⟨...⟩) with square-bracket
+  style ([...: ...]) across ContentEnhancer
+- Use explicit labels for code symbols: IDENTIFIER, MODULE, FUNCTION,
+  CLASS
+- Update markdown normalization and extracted metadata tokens
+  (HEADER, BOLD, ITALIC, CODE, CODEBLOCK, KEY, CONFIG_KEYS, YAML_KEYS,
+  XML_TAGS, CONFIG_TERMS)
+- Preserve existing extraction and normalization logic; change only
+  annotation output formatting
+
+* Update src/core/SearchService.ts
+
+Co-authored-by: Copilot <175728472+Copilot@users.noreply.github.com>
+
+* ﻿fix(ids): import randomUUID from node:crypto
+
+- Replace crypto.randomUUID() calls with imported randomUUID()
+  in src/core/JobManager.ts, src/core/RecommendationRepository.ts,
+  and src/index.ts
+- Ensure consistent ID generation and avoid relying on a global
+  crypto object
+
+* ﻿style: use template literals in error messages
+
+Replace single-quoted strings with template literals in Error and
+reject calls to normalize string quoting across core modules.
+
+Affected files:
+- src/core/BackgroundProcessor.ts
+- src/core/EmbeddingService.ts
+- src/core/PathUtils.ts
+- src/core/VectorIndex.ts
+
+* ﻿refactor(vector): make searchSimilar async
+
+- Change searchSimilar signature to async and return Promise<DocumentChunk[]>.
+- Wrap sqlite-vec query in a Promise and run work inside setImmediate to
+  avoid blocking the event loop.
+- Keep embedding conversion, stmt execution, filtering and result mapping
+  but resolve mapped results instead of returning synchronously.
+- Reject with StorageError on internal failures and simplify outer error
+  handling. Do not return embeddings to save memory.
+* callers must await searchSimilar(...) as it now returns a Promise.
+
+* Update src/core/RecommendationEngine.ts
+
+Co-authored-by: Copilot <175728472+Copilot@users.noreply.github.com>
+
+* Update src/core/ContentClassifier.ts
+
+Co-authored-by: Copilot <175728472+Copilot@users.noreply.github.com>
+
+* ﻿refactor(recommendation): extract expiry constant
+
+- Add RECOMMENDATION_EXPIRY_MS (30 days in ms) to centralize expiry value
+- Replace hard-coded 30-day millisecond expressions with the constant
+- Use the constant for all recommendation expiresAt assignments
+
+* Apply suggestions from code review
+
+Co-authored-by: Copilot <175728472+Copilot@users.noreply.github.com>
+
 # 1.0.0 (2025-09-27)
 
 
