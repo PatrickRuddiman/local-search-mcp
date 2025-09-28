@@ -1,3 +1,10 @@
+# [2.1.0](https://github.com/PatrickRuddiman/local-search-mcp/compare/v2.0.1...v2.1.0) (2025-09-28)
+
+
+### Features
+
+* **commitlint:** auto-generate Conventional Commits–compatible PR title and body via Fabric + GPT; ensure Fabric .env, init and CI permissions ([#27](https://github.com/PatrickRuddiman/local-search-mcp/issues/27)) ([071eb8f](https://github.com/PatrickRuddiman/local-search-mcp/commit/071eb8f638abe9f9cf89284c07158ca63f3ebcdb))
+
 ## [2.0.1](https://github.com/PatrickRuddiman/local-search-mcp/compare/v2.0.0...v2.0.1) (2025-09-28)
 
 
