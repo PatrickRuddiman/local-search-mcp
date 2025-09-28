@@ -1,3 +1,10 @@
+## [2.0.1](https://github.com/PatrickRuddiman/local-search-mcp/compare/v2.0.0...v2.0.1) (2025-09-28)
+
+
+### Bug Fixes
+
+* add workflow to lint commits (and also publish 2.0.1) ([#26](https://github.com/PatrickRuddiman/local-search-mcp/issues/26)) ([4fdc3a1](https://github.com/PatrickRuddiman/local-search-mcp/commit/4fdc3a146916231a0f1ae687b81dfd8d1439a7ba))
+
 # [2.0.0](https://github.com/PatrickRuddiman/local-search-mcp/compare/v1.0.0...v2.0.0) (2025-09-28)
 
 
