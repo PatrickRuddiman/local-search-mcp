@@ -429,15 +429,15 @@ export class ContentEnhancer {
       case 'javascript':
       case 'typescript':
         patterns.push(
-          { regex: /\b(export\s+(?:default\s+)?(?:class|function|const|let|var)\s+)(\w+)/g, replacement: '$1⟨$2⟩' },
-          { regex: /\b(import\s+.*?\s+from\s+['"`])([^'"`]+)(['"`])/g, replacement: '$1⟨$2⟩$3' }
+          { regex: /\b(export\s+(?:default\s+)?(?:class|function|const|let|var)\s+)(\w+)/g, replacement: '$1[IDENTIFIER: $2]' },
+          { regex: /\b(import\s+.*?\s+from\s+['"`])([^'"`]+)(['"`])/g, replacement: '$1[MODULE: $2]$3' }
         );
         break;
       
       case 'python':
         patterns.push(
-          { regex: /\b(def\s+)(\w+)/g, replacement: '$1⟨$2⟩' },
-          { regex: /\b(class\s+)(\w+)/g, replacement: '$1⟨$2⟩' }
+          { regex: /\b(def\s+)(\w+)/g, replacement: '$1[FUNCTION: $2]' },
+          { regex: /\b(class\s+)(\w+)/g, replacement: '$1[CLASS: $2]' }
         );
         break;
     }
@@ -450,11 +450,11 @@ export class ContentEnhancer {
    */
   private normalizeMarkdown(content: string): string {
     return content
-      .replace(/#{1,6}\s*(.+)/g, '⟨HEADER: $1⟩') // Normalize headers
-      .replace(/\*\*(.+?)\*\*/g, '⟨BOLD: $1⟩') // Normalize bold
-      .replace(/\*(.+?)\*/g, '⟨ITALIC: $1⟩') // Normalize italic
-      .replace(/`(.+?)`/g, '⟨CODE: $1⟩') // Normalize inline code
-      .replace(/```[\s\S]*?```/g, match => `⟨CODEBLOCK: ${match.replace(/```/g, '')}⟩`);
+      .replace(/#{1,6}\s*(.+)/g, '[HEADER: $1]') // Normalize headers
+      .replace(/\*\*(.+?)\*\*/g, '[BOLD: $1]') // Normalize bold
+      .replace(/\*(.+?)\*/g, '[ITALIC: $1]') // Normalize italic
+      .replace(/`(.+?)`/g, '[CODE: $1]') // Normalize inline code
+      .replace(/```[\s\S]*?```/g, match => `[CODEBLOCK: ${match.replace(/```/g, '')}]`);
   }
 
   /**
@@ -470,7 +470,7 @@ export class ContentEnhancer {
     
     for (const term of keyTerms) {
       const regex = new RegExp(`\\b(${term})\\b`, 'gi');
-      emphasized = emphasized.replace(regex, '⟨KEY: $1⟩');
+      emphasized = emphasized.replace(regex, '[KEY: $1]');
     }
 
     return emphasized;
@@ -495,7 +495,7 @@ export class ContentEnhancer {
       
       // Extract keys for better searchability
       const keys = this.extractJsonKeys(parsed);
-      const keyText = keys.length > 0 ? `\n⟨CONFIG_KEYS: ${keys.join(', ')}⟩` : '';
+      const keyText = keys.length > 0 ? `\n[CONFIG_KEYS: ${keys.join(', ')}]` : '';
       
       return JSON.stringify(parsed, null, 2) + keyText;
     } catch {
@@ -538,7 +538,7 @@ export class ContentEnhancer {
       }
     }
     
-    const keyText = keys.length > 0 ? `\n⟨YAML_KEYS: ${keys.join(', ')}⟩` : '';
+    const keyText = keys.length > 0 ? `\n[YAML_KEYS: ${keys.join(', ')}]` : '';
     return content + keyText;
   }
 
@@ -550,7 +550,7 @@ export class ContentEnhancer {
     const tags = content.match(/<([a-zA-Z0-9_-]+)(?:\s|>)/g);
     const uniqueTags = tags ? [...new Set(tags.map(t => t.replace(/[<>\s]/g, '')))] : [];
     
-    const tagText = uniqueTags.length > 0 ? `\n⟨XML_TAGS: ${uniqueTags.join(', ')}⟩` : '';
+    const tagText = uniqueTags.length > 0 ? `\n[XML_TAGS: ${uniqueTags.join(', ')}]` : '';
     return content + tagText;
   }
 
@@ -562,7 +562,7 @@ export class ContentEnhancer {
     const pairs = content.match(/^[a-zA-Z0-9_-]+\s*[=:]/gm);
     const keys = pairs ? pairs.map(p => p.replace(/\s*[=:].*/, '')) : [];
     
-    const keyText = keys.length > 0 ? `\n⟨CONFIG_KEYS: ${keys.join(', ')}⟩` : '';
+    const keyText = keys.length > 0 ? `\n[CONFIG_KEYS: ${keys.join(', ')}]` : '';
     return content + keyText;
   }
 
@@ -588,7 +588,7 @@ export class ContentEnhancer {
     
     const uniqueKeywords = [...new Set(keywords)];
     return uniqueKeywords.length > 0 ? 
-      `${content}\n⟨CONFIG_TERMS: ${uniqueKeywords.join(', ')}⟩` : content;
+      `${content}\n[CONFIG_TERMS: ${uniqueKeywords.join(', ')}]` : content;
   }
 
   /**
