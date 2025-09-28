@@ -1,0 +1,12 @@
+name: Commitlint
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - run: npm i -D @commitlint/cli @commitlint/config-conventional
+      - run: npx commitlint --from=origin/${{ github.base_ref }} --to=HEAD --verbose
