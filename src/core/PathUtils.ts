@@ -114,7 +114,7 @@ export function extractRepoName(repoUrl: string): string {
       return `${owner}_${repo}`;
     }
 
-    throw new Error('Invalid repo URL format');
+  throw new Error(`Invalid repo URL format`);
   } catch (error) {
     // Generate a default name from the URL
     const cleanUrl = repoUrl.replace(/^https?:\/\//, '').replace(/\.git$/, '');

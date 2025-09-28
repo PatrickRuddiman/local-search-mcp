@@ -93,7 +93,7 @@ export class VectorIndex {
   // Recommendation methods (delegate to recommendationRepository if available)
   async storeRecommendation(recommendation: Omit<SearchRecommendation, 'id'>): Promise<SearchRecommendation> {
     if (!this.recommendationRepository) {
-      throw new Error('RecommendationRepository not initialized');
+      throw new Error(`RecommendationRepository not initialized`);
     }
     return await this.recommendationRepository.storeRecommendation(recommendation);
   }
@@ -114,7 +114,7 @@ export class VectorIndex {
 
   async getLearningParameters(): Promise<AdaptiveLearningParams> {
     if (!this.recommendationRepository) {
-      throw new Error('RecommendationRepository not initialized');
+      throw new Error(`RecommendationRepository not initialized`);
     }
     return await this.recommendationRepository.getLearningParameters();
   }
