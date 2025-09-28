@@ -316,7 +316,7 @@ export class EmbeddingService {
    */
   static cosineSimilarity(vec1: number[], vec2: number[]): number {
     if (vec1.length !== vec2.length) {
-      throw new Error('Vector lengths must match');
+      throw new Error('Vector lengths must match: got ' + vec1.length + ' and ' + vec2.length);
     }
 
     if (vec1.length === 0) {

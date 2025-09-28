@@ -1,3 +1,4 @@
+
 import { FileProcessor } from './FileProcessor.js';
 import { TextChunker } from './TextChunker.js';
 import { EmbeddingService } from './EmbeddingService.js';
@@ -5,6 +6,7 @@ import { VectorIndex } from './VectorIndex.js';
 import { JobManager } from './JobManager.js';
 import { log } from './Logger.js';
 import { getMcpPaths, ensureDirectoryExists, extractRepoName } from './PathUtils.js';
+import { DatabaseSchema } from './DatabaseSchema.js';
 import { runCli } from 'repomix';
 import { promises as fs } from 'fs';
 import * as path from 'path';
@@ -119,17 +121,20 @@ export class BackgroundProcessor {
     }
   }
 
-  private async processFile(
-    jobId: string,
-    filePath: string,
-    startProgress: number,
-    progressRange: number,
-    maxFileSizeMB?: number
-  ): Promise<void> {
-    const fileProcessor = new FileProcessor(maxFileSizeMB);
-    const textChunker = new TextChunker();
-    const embeddingService = await EmbeddingService.getInstance();
-    const vectorIndex = new VectorIndex();
+  private async processFile(
+    jobId: string,
+    filePath: string,
+    startProgress: number,
+    progressRange: number,
+    maxFileSizeMB?: number
+  ): Promise<void> {
+    const fileProcessor = new FileProcessor(maxFileSizeMB);
+    const textChunker = new TextChunker();
+    const embeddingService = await EmbeddingService.getInstance();
+    // Use ServiceLocator for efficient shared instance management
+    const { ServiceLocator } = await import('./ServiceLocator.js');
+    const serviceLocator = ServiceLocator.getInstance();
+    const vectorIndex = serviceLocator.getVectorIndex();
 
     try {
       this.jobManager.updateProgress(jobId, startProgress, 'Reading file content...');
@@ -163,7 +168,7 @@ export class BackgroundProcessor {
       }
 
       this.jobManager.updateProgress(jobId, startProgress + progressRange, `Indexed ${storedCount} chunks successfully`);
-      vectorIndex.close();
+      // Note: Don't close shared instance, it will be reused
 
     } catch (error: any) {
       throw new StorageError(`File processing failed for ${filePath}: ${error.message}`, error);
@@ -388,7 +393,7 @@ export class BackgroundProcessor {
 
       request.on('timeout', () => {
         request.destroy();
-        reject(new Error('Download timeout'));
+  reject(new Error('Download timeout'));
       });
 
       request.on('error', (error: any) => {
