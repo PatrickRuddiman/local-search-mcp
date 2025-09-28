@@ -6,6 +6,7 @@ import {
   SuggestionStrategy,
   StorageError
 } from '../types/index.js';
+import { randomUUID } from 'node:crypto';
 
 export class RecommendationRepository {
   private db: Database.Database;
@@ -21,7 +22,7 @@ export class RecommendationRepository {
    */
   async storeRecommendation(recommendation: Omit<SearchRecommendation, 'id'>): Promise<SearchRecommendation> {
     try {
-      const id = `rec_${Date.now()}_${crypto.randomUUID().replace(/-/g, '').substring(0, 9)}`;
+      const id = `rec_${Date.now()}_${randomUUID().replace(/-/g, '').substring(0, 9)}`;
       const now = new Date();
 
       const stmt = this.db.prepare(`

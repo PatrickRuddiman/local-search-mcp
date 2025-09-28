@@ -13,6 +13,7 @@ import { BackgroundProcessor } from './core/BackgroundProcessor.js';
 import { JobManager } from './core/JobManager.js';
 import { logger, log } from './core/Logger.js';
 import { initializeMcpDirectories, extractRepoName } from './core/PathUtils.js';
+import { randomUUID } from 'node:crypto';
 
 class LocalSearchServer {
   private server: Server;
@@ -210,7 +211,7 @@ class LocalSearchServer {
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
-      const requestId = `${Date.now()}-${crypto.randomUUID().replace(/-/g, '').substring(0, 9)}`;
+      const requestId = `${Date.now()}-${randomUUID().replace(/-/g, '').substring(0, 9)}`;
 
       log.debug(`[${requestId}] Tool call received: ${name}`, { args: Object.keys(args || {}) });
 

@@ -1,5 +1,6 @@
 import { log } from './Logger.js';
 import { ProgressManager } from './ProgressManager.js';
+import { randomUUID } from 'node:crypto';
 
 export interface Job {
   id: string;
@@ -270,7 +271,7 @@ export class JobManager {
    */
   private generateJobId(): string {
     const timestamp = Date.now().toString(36);
-    const random = crypto.randomUUID().replace(/-/g, '').substring(0, 8);
+    const random = randomUUID().replace(/-/g, '').substring(0, 8);
     return `job_${timestamp}_${random}`;
   }
 }
