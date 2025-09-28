@@ -42,7 +42,7 @@ jobs:
             git --no-pager diff $COMMIT^ $COMMIT | fabric -m gpt-5-mini -p summarize_git_diff >> "$TMP_CHANGELOG"
             echo -e "\n---\n" >> "$TMP_CHANGELOG"
           done
-          NEW_BODY=$(cat "$TMP_CHANGELOG" | fabric -m gpt-5-mini "write a detailed conventional commits compatible pull request description based on the following commit summaries (dont add comentary as it will be directly used in the pr):")
+          NEW_BODY=$(cat "$TMP_CHANGELOG" | fabric -m gpt-5-mini -u https://www.conventionalcommits.org/en/v1.0.0/#summary "write a pull request description. start with a summary of key changes emphasising important factors of convential commits (fix, feat, chore, BREAKING CHANGE, etc). followed by followed by a changelog of commits. based on the following commits (dont add comentary as it will be directly used in the pr):")
           PR_COMMITS=$(gh pr view $PR_NUMBER --json commits | jq -r '.commits[] | "\(.messageHeadline): \(.messageBody)"' | paste -sd ", " -)
           NEW_TITLE=$(fabric -m gpt-5-mini "write a conventional commits compatible title for a PR with the following commits and PR description: $PR_COMMITS; $NEW_BODY")
           rm -f "$TMP_CHANGELOG"
