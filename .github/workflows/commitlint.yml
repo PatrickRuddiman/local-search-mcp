@@ -13,4 +13,33 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - run: npx -y commitlint --from=origin/${{ github.base_ref }} --to=HEAD --verbose
+      - name: Install fabric
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/danielmiessler/fabric/main/scripts/installer/install.sh | bash
+      - name: Lint PR squash commit (title + desc) and auto-fix with fabric if needed
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          # Lint the squash commit (title + desc)
+          echo -e "${{ github.event.pull_request.title }}\n\n${{ github.event.pull_request.body }}" | npx -y commitlint && exit 0
+          # If not compliant, generate new title and desc using fabric
+          PR_COMMITS=$(gh pr view $PR_NUMBER --json commits -q '.commits[].commit.messageHeadline' | jq -r '.[]' | paste -sd ", " -)
+          NEW_TITLE=$(fabric -m gpt-5-mini "write a conventional commits compatible title for a PR with the following commits: $PR_COMMITS")
+          # Summarize each commit's diff and append to a temporary file
+          TMP_CHANGELOG=$(mktemp)
+          COMMITS=$(git rev-list --reverse origin/main..HEAD)
+          for COMMIT in $COMMITS; do
+            echo "Summarizing $COMMIT..."
+            git show $COMMIT --no-patch --format="%h %s" >> "$TMP_CHANGELOG"
+            git --no-pager diff $COMMIT^ $COMMIT | fabric -m gpt-5-mini -p summarize_git_diff >> "$TMP_CHANGELOG"
+            echo -e "\n---\n" >> "$TMP_CHANGELOG"
+          done
+          NEW_BODY=$(cat "$TMP_CHANGELOG" | fabric -p write_pull-request -m gpt-5-mini)
+          rm -f "$TMP_CHANGELOG"
+          echo "Updating PR title to: $NEW_TITLE"
+          echo "Updating PR body to: $NEW_BODY"
+          gh pr edit $PR_NUMBER --title "$NEW_TITLE" --body "$NEW_BODY"
