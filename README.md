@@ -219,8 +219,7 @@ Delete a file and all its associated chunks and embeddings from the index.
 #### `flush_all`
 Flush the entire database and all downloaded files. **WARNING**: This action is irreversible and will delete all indexed content, documents, and cached files.
 
-**Parameters:**
-- `confirm` (required): Must be set to `true` to confirm the flush operation
+**Parameters:** None
 
 **What gets deleted:**
 - All vector embeddings and document chunks from the database
@@ -234,9 +233,7 @@ Flush the entire database and all downloaded files. **WARNING**: This action is 
 ```json
 {
   "name": "flush_all",
-  "arguments": {
-    "confirm": true
-  }
+  "arguments": {}
 }
 ```
 

@@ -210,10 +210,7 @@ class LocalSearchServer {
           description: 'Flush the entire database and all downloaded files. WARNING: This action is irreversible and will delete all indexed content, documents, and cached files.',
           inputSchema: {
             type: 'object',
-            properties: {
-              confirm: { type: 'boolean', description: 'Must be set to true to confirm the flush operation' },
-            },
-            required: ['confirm'],
+            properties: {},
           },
         },
       ],
@@ -695,19 +692,6 @@ class LocalSearchServer {
   private async handleFlushAll(args: any, requestId: string) {
     try {
       log.debug(`[${requestId}] Starting flush_all operation`);
-
-      // Validate confirmation parameter
-      if (!args.confirm || args.confirm !== true) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: 'Flush operation requires confirmation. Set confirm parameter to true to proceed.',
-            },
-          ],
-        };
-      }
-
       log.warn(`[${requestId}] Flushing all data - this action is irreversible`);
 
       const results = [];
