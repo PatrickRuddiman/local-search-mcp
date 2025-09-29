@@ -216,6 +216,30 @@ Delete a file and all its associated chunks and embeddings from the index.
 **Parameters:**
 - `filePath` (required): Absolute path to file to remove
 
+#### `flush_all`
+Flush the entire database and all downloaded files. **WARNING**: This action is irreversible and will delete all indexed content, documents, and cached files.
+
+**Parameters:**
+- `confirm` (required): Must be set to `true` to confirm the flush operation
+
+**What gets deleted:**
+- All vector embeddings and document chunks from the database
+- All recommendation and learning data
+- All downloaded files from the `fetched` directory
+- All cloned repositories from the `repositories` directory  
+- All temporary files from the `temp` directory
+- All active background jobs are cancelled
+
+**Example:**
+```json
+{
+  "name": "flush_all",
+  "arguments": {
+    "confirm": true
+  }
+}
+```
+
 ### ⚙️ Job Management Tools
 
 #### `get_job_status`

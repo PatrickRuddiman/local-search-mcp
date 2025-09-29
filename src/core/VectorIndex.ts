@@ -90,6 +90,16 @@ export class VectorIndex {
     await this.repository.clear();
   }
 
+  /**
+   * Clear all recommendation data
+   */
+  async clearRecommendations(): Promise<void> {
+    if (!this.recommendationRepository) {
+      return;
+    }
+    await this.recommendationRepository.clear();
+  }
+
   // Recommendation methods (delegate to recommendationRepository if available)
   async storeRecommendation(recommendation: Omit<SearchRecommendation, 'id'>): Promise<SearchRecommendation> {
     if (!this.recommendationRepository) {
