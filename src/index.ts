@@ -205,6 +205,14 @@ class LocalSearchServer {
             properties: {},
           },
         },
+        {
+          name: 'flush_all',
+          description: 'Flush the entire database and all downloaded files. WARNING: This action is irreversible and will delete all indexed content, documents, and cached files.',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+        },
       ],
     }));
 
@@ -240,6 +248,9 @@ class LocalSearchServer {
             break;
           case 'list_active_jobs':
             result = await this.handleListActiveJobs(args, requestId);
+            break;
+          case 'flush_all':
+            result = await this.handleFlushAll(args, requestId);
             break;
           default:
             log.warn(`[${requestId}] Unknown tool requested: ${name}`);
@@ -678,6 +689,128 @@ class LocalSearchServer {
     }
   }
 
+  private async handleFlushAll(args: any, requestId: string) {
+    try {
+      log.debug(`[${requestId}] Starting flush_all operation`);
+      log.warn(`[${requestId}] Flushing all data - this action is irreversible`);
+
+      const results = [];
+      let totalClearedChunks = 0;
+      let totalClearedFiles = 0;
+
+      try {
+        // Clear all vector data from the database
+        log.debug(`[${requestId}] Clearing vector database`);
+        
+        // Get statistics before clearing for reporting
+        const stats = await this.searchService.vectorIndexInstance.getStatistics();
+        totalClearedChunks = stats.totalChunks;
+        totalClearedFiles = stats.totalFiles;
+        
+        await this.searchService.vectorIndexInstance.clear();
+        
+        results.push(`✅ Cleared vector database (${totalClearedChunks} chunks, ${totalClearedFiles} files)`);
+      } catch (error: any) {
+        results.push(`❌ Failed to clear vector database: ${error.message}`);
+        log.error(`[${requestId}] Failed to clear vector database`, error);
+      }
+
+      // Clear recommendation data if available
+      try {
+        log.debug(`[${requestId}] Clearing recommendation data`);
+        await this.searchService.vectorIndexInstance.clearRecommendations();
+        results.push(`✅ Cleared recommendation data`);
+      } catch (error: any) {
+        results.push(`❌ Failed to clear recommendation data: ${error.message}`);
+        log.error(`[${requestId}] Failed to clear recommendation data`, error);
+      }
+
+      // Clear downloaded files
+      try {
+        const { promises: fs } = await import('fs');
+        const { getMcpPaths } = await import('./core/PathUtils.js');
+        
+        const paths = getMcpPaths();
+        
+        // Clear fetched files directory
+        log.debug(`[${requestId}] Clearing fetched files directory: ${paths.fetched}`);
+        try {
+          await fs.rm(paths.fetched, { recursive: true, force: true });
+          await fs.mkdir(paths.fetched, { recursive: true });
+          results.push(`✅ Cleared fetched files directory`);
+        } catch (error: any) {
+          results.push(`❌ Failed to clear fetched files: ${error.message}`);
+          log.error(`[${requestId}] Failed to clear fetched files`, error);
+        }
+
+        // Clear repositories directory
+        log.debug(`[${requestId}] Clearing repositories directory: ${paths.repositories}`);
+        try {
+          await fs.rm(paths.repositories, { recursive: true, force: true });
+          await fs.mkdir(paths.repositories, { recursive: true });
+          results.push(`✅ Cleared repositories directory`);
+        } catch (error: any) {
+          results.push(`❌ Failed to clear repositories: ${error.message}`);
+          log.error(`[${requestId}] Failed to clear repositories`, error);
+        }
+
+        // Clear temp directory but recreate it
+        log.debug(`[${requestId}] Clearing temp directory: ${paths.temp}`);
+        try {
+          await fs.rm(paths.temp, { recursive: true, force: true });
+          await fs.mkdir(paths.temp, { recursive: true });
+          results.push(`✅ Cleared temp directory`);
+        } catch (error: any) {
+          results.push(`❌ Failed to clear temp directory: ${error.message}`);
+          log.error(`[${requestId}] Failed to clear temp directory`, error);
+        }
+
+      } catch (error: any) {
+        results.push(`❌ Failed to access file system: ${error.message}`);
+        log.error(`[${requestId}] Failed to access file system`, error);
+      }
+
+      // Clear any active jobs
+      try {
+        const activeJobs = this.jobManager.getActiveJobs();
+        for (const job of activeJobs) {
+          this.jobManager.failJob(job.id, 'Cancelled due to flush_all operation');
+        }
+        if (activeJobs.length > 0) {
+          results.push(`✅ Cancelled ${activeJobs.length} active jobs`);
+        }
+      } catch (error: any) {
+        results.push(`❌ Failed to clear active jobs: ${error.message}`);
+        log.error(`[${requestId}] Failed to clear active jobs`, error);
+      }
+
+      const message = `🗑️ **Flush All Operation Complete**\n\n${results.join('\n')}\n\n` +
+                     `**Summary**: All database content and downloaded files have been permanently removed.`;
+
+      log.info(`[${requestId}] Flush all operation completed`, { 
+        clearedChunks: totalClearedChunks, 
+        clearedFiles: totalClearedFiles,
+        results: results.length 
+      });
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: message,
+          },
+        ],
+      };
+
+    } catch (error: any) {
+      log.error(`[${requestId}] Flush all operation failed`, error);
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Flush all operation failed: ${error.message}`
+      );
+    }
+  }
+
   async run() {
     log.debug('Connecting MCP server to transport');
     try {
@@ -687,7 +820,7 @@ class LocalSearchServer {
       timer();
 
       log.info('Local Search MCP server running on stdio', {
-        availableTools: ['search_documents', 'get_file_details', 'remove_file', 'fetch_repo', 'fetch_file']
+        availableTools: ['search_documents', 'get_file_details', 'remove_file', 'fetch_repo', 'fetch_file', 'get_job_status', 'list_active_jobs', 'flush_all']
       });
 
       console.error('Local Search MCP server running on stdio');

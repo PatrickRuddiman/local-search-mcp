@@ -559,6 +559,13 @@ export class SearchService {
   }
 
   /**
+   * Get the vector index instance for administrative operations
+   */
+  get vectorIndexInstance(): VectorIndex {
+    return this.vectorIndex;
+  }
+
+  /**
    * Close all resources
    */
   dispose(): void {
