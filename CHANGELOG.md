@@ -1,3 +1,10 @@
+# [2.2.0](https://github.com/PatrickRuddiman/local-search-mcp/compare/v2.1.0...v2.2.0) (2025-10-02)
+
+
+### Features
+
+* **mcp:** add irreversible flush_all admin tool to wipe vectors, files, jobs, and recommendations ([#29](https://github.com/PatrickRuddiman/local-search-mcp/issues/29)) ([ee10c0a](https://github.com/PatrickRuddiman/local-search-mcp/commit/ee10c0a8d69f613c640404aac70eca9d98ad42a8))
+
 # [2.1.0](https://github.com/PatrickRuddiman/local-search-mcp/compare/v2.0.1...v2.1.0) (2025-09-28)
 
 
