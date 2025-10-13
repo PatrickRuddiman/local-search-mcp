@@ -25,12 +25,7 @@ class LocalSearchServer {
     const timer = log.time('server-initialization');
     log.info('Starting Local Search MCP server initialization');
 
-    // Initialize MCP directories
-    initializeMcpDirectories().catch(error => {
-      log.error('Failed to initialize MCP directories', error);
-    });
-
-    // Log environment info
+    // Log environment info (before async operations)
     const stats = logger.getLogStats();
     log.info('Environment info', {
       nodeVersion: process.version,
@@ -812,6 +807,17 @@ class LocalSearchServer {
   }
 
   async run() {
+    // Initialize MCP directories before starting server
+    try {
+      log.info('Initializing MCP directories');
+      await initializeMcpDirectories();
+      log.info('MCP directories initialized successfully');
+    } catch (error: any) {
+      log.error('Failed to initialize MCP directories', error);
+      console.error('Failed to initialize MCP directories:', error.message);
+      throw error;
+    }
+
     log.debug('Connecting MCP server to transport');
     try {
       const timer = log.time('server-transport-connect');

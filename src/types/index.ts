@@ -66,20 +66,6 @@ export interface ContentMetadata {
   hasDocumentation: boolean;
 }
 
-// Domain vocabulary for technology detection
-export interface DomainVocabulary {
-  id?: number;
-  domain: string;
-  keywords: KeywordWeight[];
-  authorityPatterns: string[];
-  boostFactor: number;
-}
-
-export interface KeywordWeight {
-  keyword: string;
-  weight: number;
-}
-
 // Query intent classification
 export interface QueryIntent {
   queryHash: string;
