@@ -229,3 +229,46 @@ export class StorageError extends LocalSearchError {
     super(message, 'STORAGE_ERROR', originalError);
   }
 }
+
+// Embedding backend types
+export enum EmbeddingBackend {
+  AUTO = 'auto',
+  LOCAL_GPU = 'local-gpu',
+  LOCAL_CPU = 'local-cpu',
+  MCP_SAMPLING = 'mcp-sampling',
+  OPENAI = 'openai',
+  COHERE = 'cohere'
+}
+
+export interface EmbeddingConfig {
+  backend?: EmbeddingBackend;
+  batchSize?: number;
+  
+  // MCP Sampling config
+  mcpSamplingConfig?: {
+    model?: string;
+    maxRetries?: number;
+    timeout?: number;
+  };
+  
+  // External API config
+  openaiConfig?: {
+    apiKey: string;
+    model?: string; // default: 'text-embedding-3-small'
+    dimensions?: number; // default: 512
+  };
+  
+  cohereConfig?: {
+    apiKey: string;
+    model?: string; // default: 'embed-english-v3.0'
+    inputType?: 'search_document' | 'search_query';
+  };
+}
+
+export interface EmbeddingBackendInfo {
+  backend: EmbeddingBackend;
+  available: boolean;
+  reason?: string;
+  dimensions: number;
+  cost?: string;
+}

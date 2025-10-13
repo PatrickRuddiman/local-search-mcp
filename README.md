@@ -281,11 +281,100 @@ npm run dev  # Development with hot reload
 
 ## Configuration
 
-### Environment Variables
+### Embedding Backends
 
-Set optional environment variables for custom paths:
+The server supports multiple embedding generation backends with automatic selection based on available resources:
+
+#### Backend Priority (Auto Mode)
+1. **Local GPU** - Fastest, uses TensorFlow.js with GPU acceleration (when available)
+2. **OpenAI API** - Fast, requires API key, ~$0.02 per 1M tokens
+3. **Cohere API** - Fast, requires API key, ~$0.10 per 1M tokens  
+4. **MCP Sampling** - Experimental, uses LLM via MCP protocol (when no GPU)
+5. **Local CPU** - Slowest, always available fallback
+
+#### Environment Variables
+
+**Embedding Configuration:**
+- `EMBEDDING_BACKEND` - Control embedding backend selection:
+  - `auto` (default) - Automatically select best available backend
+  - `local-gpu` - Force GPU (fails if unavailable)
+  - `local-cpu` - Force CPU (slow but always works)
+  - `openai` - Use OpenAI embeddings API (requires `OPENAI_API_KEY`)
+  - `cohere` - Use Cohere embeddings API (requires `COHERE_API_KEY`)
+  - `mcp-sampling` - Experimental MCP-based embeddings
+
+**API Keys (optional):**
+- `OPENAI_API_KEY` - OpenAI API key for fast embedding generation
+- `COHERE_API_KEY` - Cohere API key as alternative to OpenAI
+
+**Path Configuration:**
 - `MCP_DATA_FOLDER` - Custom database and logs directory (defaults to platform-specific user data folder)
 - `MCP_DOCS_FOLDER` - Custom document storage directory (defaults to platform-specific user documents folder)
+
+#### Configuration Examples
+
+**Using OpenAI for embeddings (recommended for CPU-only systems):**
+```json
+{
+  "mcpServers": {
+    "local-search": {
+      "command": "npx",
+      "args": ["-y", "local-search-mcp"],
+      "env": {
+        "EMBEDDING_BACKEND": "auto",
+        "OPENAI_API_KEY": "sk-..."
+      }
+    }
+  }
+}
+```
+
+**Using Cohere for embeddings:**
+```json
+{
+  "mcpServers": {
+    "local-search": {
+      "command": "npx",
+      "args": ["-y", "local-search-mcp"],
+      "env": {
+        "EMBEDDING_BACKEND": "auto",
+        "COHERE_API_KEY": "..."
+      }
+    }
+  }
+}
+```
+
+**Force CPU-only mode (no API calls):**
+```json
+{
+  "mcpServers": {
+    "local-search": {
+      "command": "npx",
+      "args": ["-y", "local-search-mcp"],
+      "env": {
+        "EMBEDDING_BACKEND": "local-cpu"
+      }
+    }
+  }
+}
+```
+
+#### Performance Comparison
+
+| Backend | Speed | Cost | Quality | Best For |
+|---------|-------|------|---------|----------|
+| Local GPU | ⚡⚡⚡ | Free | ⭐⭐⭐⭐ | Privacy, local processing |
+| OpenAI API | ⚡⚡⚡ | $ | ⭐⭐⭐⭐⭐ | CPU-only systems, production |
+| Cohere API | ⚡⚡⚡ | $$ | ⭐⭐⭐⭐ | Alternative to OpenAI |
+| MCP Sampling | ⚡ | Free | ⭐⭐ | Experimental only |
+| Local CPU | 🐌 | Free | ⭐⭐⭐⭐ | Small repos only (very slow) |
+
+**Recommendations:**
+- **GPU available**: Use default `auto` mode (will use GPU)
+- **CPU only, fast needed**: Set `OPENAI_API_KEY` and use `auto` mode
+- **CPU only, privacy first**: Use `local-cpu` (expect slow indexing)
+- **Large repositories**: Always use GPU or API backends
 
 ### Supported File Types
 
