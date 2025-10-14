@@ -27,7 +27,7 @@ jobs:
           persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 'lts/*'
           registry-url: 'https://registry.npmjs.org'
