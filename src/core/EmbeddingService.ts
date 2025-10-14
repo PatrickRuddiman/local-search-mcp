@@ -153,8 +153,9 @@ export class EmbeddingService {
     // Auto-detection priority:
     // 1. GPU available → use it
     // 2. External API configured → use it (OpenAI preferred)
-    // 3. MCP sampling available → use it
-    // 4. CPU fallback
+    // 3. CPU fallback
+    // Note: MCP sampling is NOT in auto-detection due to client compatibility issues.
+    //       Use EMBEDDING_BACKEND=mcp-sampling to explicitly enable it.
     
     if (await this.isGPUAvailable()) {
       log.info('GPU detected, using local GPU embeddings');
@@ -174,13 +175,8 @@ export class EmbeddingService {
       return this.currentBackend;
     }
     
-    if (await this.isMCPSamplingAvailable()) {
-      log.info('No GPU or API, using MCP sampling embeddings (experimental)');
-      this.currentBackend = EmbeddingBackend.MCP_SAMPLING;
-      return this.currentBackend;
-    }
-    
-    log.warn('No GPU, API, or MCP sampling - falling back to CPU (slow)');
+    log.warn('No GPU or API keys configured - falling back to CPU (slow)');
+    log.info('Tip: Add OPENAI_API_KEY to environment for faster embeddings on CPU-only systems');
     this.currentBackend = EmbeddingBackend.LOCAL_CPU;
     return this.currentBackend;
   }
@@ -413,19 +409,24 @@ export class EmbeddingService {
       for (let i = 0; i < chunks.length; i++) {
         try {
           const embedding = await this.generateSingleEmbedding(chunks[i].content);
-          results.push({
-            ...chunks[i],
-            embedding
-          });
+          if (embedding && embedding.length > 0) {
+            results.push({
+              ...chunks[i],
+              embedding
+            });
+          } else {
+            log.error(`Generated empty embedding for chunk ${chunks[i].id}, skipping`);
+          }
         } catch (individualError: any) {
-          log.warn(`Failed to embed chunk ${chunks[i].id}`, individualError);
-          // Add chunk with empty embedding - will be handled by search service
-          results.push({
-            ...chunks[i],
-            embedding: []
-          });
+          log.error(`Failed to embed chunk ${chunks[i].id}`, individualError);
+          // Skip chunks that fail to embed rather than adding empty embeddings
         }
       }
+      
+      if (results.length === 0) {
+        throw new EmbeddingError('All chunks failed to generate embeddings');
+      }
+      
       return results;
     }
   }
@@ -600,18 +601,22 @@ export class EmbeddingService {
     for (const chunk of chunks) {
       try {
         const embedding = await this.generateSingleEmbeddingMCP(chunk.content);
-        results.push({
-          ...chunk,
-          embedding
-        });
+        if (embedding && embedding.length > 0) {
+          results.push({
+            ...chunk,
+            embedding
+          });
+        } else {
+          log.error(`Generated empty MCP embedding for chunk ${chunk.id}, skipping`);
+        }
       } catch (error: any) {
-        log.warn(`Failed to generate MCP embedding for chunk ${chunk.id}`, error);
-        // Add chunk with empty embedding as fallback
-        results.push({
-          ...chunk,
-          embedding: []
-        });
+        log.error(`Failed to generate MCP embedding for chunk ${chunk.id}`, error);
+        // Skip chunks that fail to embed rather than adding empty embeddings
       }
+    }
+    
+    if (results.length === 0) {
+      throw new EmbeddingError('All chunks failed to generate MCP embeddings');
     }
     
     return results;
