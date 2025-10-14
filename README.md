@@ -289,8 +289,9 @@ The server supports multiple embedding generation backends with automatic select
 1. **Local GPU** - Fastest, uses TensorFlow.js with GPU acceleration (when available)
 2. **OpenAI API** - Fast, requires API key, ~$0.02 per 1M tokens
 3. **Cohere API** - Fast, requires API key, ~$0.10 per 1M tokens  
-4. **MCP Sampling** - Experimental, uses LLM via MCP protocol (when no GPU)
-5. **Local CPU** - Slowest, always available fallback
+4. **Local CPU** - Slowest, always available fallback
+
+**Note**: MCP Sampling is **not** included in auto-detection due to client compatibility issues. To use it, explicitly set `EMBEDDING_BACKEND=mcp-sampling`.
 
 #### Environment Variables
 
@@ -367,8 +368,10 @@ The server supports multiple embedding generation backends with automatic select
 | Local GPU | ⚡⚡⚡ | Free | ⭐⭐⭐⭐ | Privacy, local processing |
 | OpenAI API | ⚡⚡⚡ | $ | ⭐⭐⭐⭐⭐ | CPU-only systems, production |
 | Cohere API | ⚡⚡⚡ | $$ | ⭐⭐⭐⭐ | Alternative to OpenAI |
-| MCP Sampling | ⚡ | Free | ⭐⭐ | Experimental only |
 | Local CPU | 🐌 | Free | ⭐⭐⭐⭐ | Small repos only (very slow) |
+| MCP Sampling* | ⚡ | Free | ⭐⭐ | Experimental (explicit only) |
+
+*MCP Sampling requires explicit configuration (`EMBEDDING_BACKEND=mcp-sampling`) and client support. Not recommended for production use.
 
 **Recommendations:**
 - **GPU available**: Use default `auto` mode (will use GPU)
