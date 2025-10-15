@@ -352,9 +352,20 @@ export class EmbeddingService {
       throw new EmbeddingError('Universal Sentence Encoder not initialized');
     }
     
+    // Adjust batch size based on backend for responsiveness
+    // CPU mode: smaller batches (4-8) for more frequent interrupts and progress updates
+    // GPU mode: larger batches (32) for efficiency
+    const isCPUMode = this.currentBackend === EmbeddingBackend.LOCAL_CPU;
+    const batchSize = isCPUMode 
+      ? (this.config.batchSize || 6)  // Default 6 for CPU mode
+      : (this.config.batchSize || 32); // Default 32 for GPU mode
+    
+    if (isCPUMode) {
+      log.warn('WARNING: Embeddings running in CPU-only mode - this will take a very long time. For 10-100x faster processing, add OPENAI_API_KEY to your environment configuration.');
+    }
+    
     // Process in batches for efficiency
     const results: DocumentChunk[] = [];
-    const batchSize = this.config.batchSize || 32;
 
     for (let i = 0; i < chunks.length; i += batchSize) {
       const batch = chunks.slice(i, i + batchSize);
@@ -363,7 +374,8 @@ export class EmbeddingService {
 
         log.debug(`Processing embedding batch ${batchNum}/${totalBatches}`, {
           batchSize: batch.length,
-          remainingChunks: chunks.length - i
+          remainingChunks: chunks.length - i,
+          backend: this.currentBackend
         });
 
         const batchEmbeddings = await this.processBatch(batch);

@@ -11,6 +11,7 @@ export interface Job {
   endTime?: Date;
   result?: any;
   error?: string;
+  message?: string; // Current progress message
   metadata: {
     [key: string]: any;
   };
@@ -69,6 +70,9 @@ export class JobManager {
     }
 
     job.progress = Math.min(100, Math.max(0, progress));
+    if (message !== undefined) {
+      job.message = message;
+    }
     if (metadata) {
       job.metadata = { ...job.metadata, ...metadata };
     }

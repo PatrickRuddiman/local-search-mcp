@@ -590,6 +590,7 @@ class LocalSearchServer {
               `Status: ${job.status}\n` +
               `Progress: ${job.progress}%\n` +
               `Duration: ${(duration / 1000).toFixed(1)}s\n` +
+              (job.message ? `Message: ${job.message}\n` : '') +
               (job.error ? `Error: ${job.error}\n` : '') +
               (job.status === 'completed' ? 'Job completed successfully!' : '');
 
