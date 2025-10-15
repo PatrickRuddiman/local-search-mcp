@@ -11,8 +11,9 @@ import {
 import { SearchService } from './core/SearchService.js';
 import { BackgroundProcessor } from './core/BackgroundProcessor.js';
 import { JobManager } from './core/JobManager.js';
+import { FileWatcher } from './core/FileWatcher.js';
 import { logger, log } from './core/Logger.js';
-import { initializeMcpDirectories, extractRepoName } from './core/PathUtils.js';
+import { initializeMcpDirectories, extractRepoName, getMcpPaths } from './core/PathUtils.js';
 import { randomUUID } from 'node:crypto';
 
 class LocalSearchServer {
@@ -20,6 +21,7 @@ class LocalSearchServer {
   private searchService: SearchService;
   private backgroundProcessor: BackgroundProcessor;
   private jobManager: JobManager;
+  private fileWatcher: FileWatcher;
 
   constructor() {
     const timer = log.time('server-initialization');
@@ -49,6 +51,16 @@ class LocalSearchServer {
       this.jobManager = JobManager.getInstance();
 
       log.info('Core services initialized successfully');
+
+      // Initialize and start file watcher
+      this.fileWatcher = new FileWatcher(this.backgroundProcessor, this.jobManager);
+      this.fileWatcher.start().catch(error => {
+        log.error('Failed to start file watcher', error);
+      });
+
+      log.info('File watcher initialized and started', {
+        watchedDir: getMcpPaths().watched
+      });
     } catch (error: any) {
       log.error('Failed to initialize services', error);
       throw error;
@@ -79,6 +91,7 @@ class LocalSearchServer {
     process.on('SIGINT', async () => {
       log.info('Received SIGINT, starting graceful shutdown');
       try {
+        await this.fileWatcher.stop();
         await this.server.close();
         this.searchService.dispose();
         log.info('Graceful shutdown completed');
@@ -93,6 +106,9 @@ class LocalSearchServer {
   }
 
   private setupToolHandlers() {
+    // Get actual watched directory path for dynamic tool descriptions
+    const watchedDir = getMcpPaths().watched;
+    
     // List available tools
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
@@ -206,6 +222,39 @@ class LocalSearchServer {
           },
         },
         {
+          name: 'get_watcher_status',
+          description: `Get file watcher status, statistics, and watched directory path.
+
+📁 WATCHED DIRECTORY: ${watchedDir}
+
+💡 QUICK TIP: Copy files to the watched directory for automatic indexing:
+   cp myfile.txt "${watchedDir}"
+   
+Files copied to this directory are automatically processed, embedded, and made searchable within seconds. No additional tools needed!`,
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+        },
+        {
+          name: 'list_watched_files',
+          description: `List all files in the watched directory with their indexing status.
+
+📁 WATCHED DIRECTORY: ${watchedDir}
+
+This shows which files are present and whether they've been indexed. To add files for automatic indexing, simply copy them to the watched directory.`,
+          inputSchema: {
+            type: 'object',
+            properties: {
+              includeIndexed: {
+                type: 'boolean',
+                default: true,
+                description: 'Include indexing status for each file'
+              },
+            },
+          },
+        },
+        {
           name: 'flush_all',
           description: 'Flush the entire database and all downloaded files. WARNING: This action is irreversible and will delete all indexed content, documents, and cached files.',
           inputSchema: {
@@ -248,6 +297,12 @@ class LocalSearchServer {
             break;
           case 'list_active_jobs':
             result = await this.handleListActiveJobs(args, requestId);
+            break;
+          case 'get_watcher_status':
+            result = await this.handleGetWatcherStatus(args, requestId);
+            break;
+          case 'list_watched_files':
+            result = await this.handleListWatchedFiles(args, requestId);
             break;
           case 'flush_all':
             result = await this.handleFlushAll(args, requestId);
@@ -685,6 +740,103 @@ class LocalSearchServer {
       throw new McpError(
         ErrorCode.InternalError,
         `Failed to list active jobs: ${error.message}`
+      );
+    }
+  }
+
+  private async handleGetWatcherStatus(args: any, requestId: string) {
+    try {
+      log.debug(`[${requestId}] Getting file watcher status`);
+
+      const status = this.fileWatcher.getStatus();
+      
+      const message = `📁 **File Watcher Status**\n\n` +
+        `🔄 Status: ${status.isActive ? '✅ Active' : '❌ Inactive'}\n` +
+        `📂 Watched Directory: ${status.watchedDirectory}\n` +
+        `📊 Statistics:\n` +
+        `   • Files Added: ${status.stats.filesAdded}\n` +
+        `   • Files Changed: ${status.stats.filesChanged}\n` +
+        `   • Files Removed: ${status.stats.filesRemoved}\n` +
+        `   • Errors: ${status.stats.errors}\n` +
+        `   • Last Activity: ${status.stats.lastActivity ? status.stats.lastActivity.toISOString() : 'None'}\n` +
+        `⏳ Pending Debounces: ${status.pendingDebounces}\n\n` +
+        `The file watcher automatically processes files placed in the watched directory.`;
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: message,
+          },
+          {
+            type: 'text',
+            text: JSON.stringify(status, null, 2),
+          },
+        ],
+      };
+    } catch (error: any) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to get watcher status: ${error.message}`
+      );
+    }
+  }
+
+  private async handleListWatchedFiles(args: any, requestId: string) {
+    try {
+      log.debug(`[${requestId}] Listing watched files`);
+
+      const includeIndexed = args.includeIndexed !== false;
+      const files = await this.fileWatcher.listWatchedFiles(includeIndexed);
+
+      if (files.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `No files found in watched directory.\n\nWatched Directory: ${this.fileWatcher.getStatus().watchedDirectory}\n\nAdd supported files (.txt, .md, .json, etc.) to this directory for automatic indexing.`,
+            },
+          ],
+        };
+      }
+
+      const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+      const indexedCount = files.filter(f => f.isIndexed).length;
+
+      const fileList = files
+        .slice(0, 20)
+        .map((file, index) => {
+          const indexed = file.isIndexed ? '✅' : '⏳';
+          const sizeKB = (file.size / 1024).toFixed(1);
+          return `${index + 1}. ${indexed} ${file.basename} (${sizeKB}KB)\n   Path: ${file.path}\n   Modified: ${file.modified.toISOString()}`;
+        })
+        .join('\n\n');
+
+      const summary = `📁 **Watched Files** (${files.length} total)\n\n` +
+        `📊 Summary:\n` +
+        `   • Total Files: ${files.length}\n` +
+        `   • Indexed: ${indexedCount}\n` +
+        `   • Pending: ${files.length - indexedCount}\n` +
+        `   • Total Size: ${(totalSize / 1024 / 1024).toFixed(2)}MB\n\n` +
+        `Files (showing first 20):\n\n${fileList}` +
+        (files.length > 20 ? `\n\n... and ${files.length - 20} more files` : '');
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: summary,
+          },
+          {
+            type: 'text',
+            text: JSON.stringify(files.slice(0, 50), null, 2),
+          },
+        ],
+      };
+    } catch (error: any) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to list watched files: ${error.message}`
       );
     }
   }

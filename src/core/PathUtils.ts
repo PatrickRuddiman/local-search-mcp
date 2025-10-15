@@ -79,6 +79,7 @@ export function getMcpPaths() {
     docs: docsFolder,
     repositories: path.join(docsFolder, 'repositories'),
     fetched: path.join(docsFolder, 'fetched'),
+    watched: path.join(docsFolder, 'watched'),
     temp: path.join(docsFolder, 'temp'),
     database: path.join(dataFolder, 'local-search-index.db'),
     logs: path.join(dataFolder, 'local-search-mcp.log')
@@ -156,10 +157,12 @@ export async function initializeMcpDirectories(): Promise<void> {
     // Create docs subdirectories
     const repositoriesFolder = path.join(docsFolder, 'repositories');
     const fetchedFolder = path.join(docsFolder, 'fetched');
+    const watchedFolder = path.join(docsFolder, 'watched');
     const tempFolder = path.join(docsFolder, 'temp');
 
     await ensureDirectoryExists(repositoriesFolder, 'Repositories folder');
     await ensureDirectoryExists(fetchedFolder, 'Fetched files folder');
+    await ensureDirectoryExists(watchedFolder, 'Watched files folder');
     await ensureDirectoryExists(tempFolder, 'Temp folder for clones');
 
   } catch (error: any) {
