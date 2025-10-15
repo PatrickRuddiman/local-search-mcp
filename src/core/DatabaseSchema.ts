@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
+import path from 'path';
+import fs from 'fs';
 import { log } from './Logger.js';
 import { getMcpPaths } from './PathUtils.js';
 import { StorageError } from '../types/index.js';
@@ -13,6 +15,20 @@ export class DatabaseSchema {
 
     const mcpPaths = getMcpPaths();
     this.dbPath = mcpPaths.database;
+
+    // Ensure the database directory exists 
+    const dbDir = path.dirname(this.dbPath);
+    if (!fs.existsSync(dbDir)) {
+      try {
+        fs.mkdirSync(dbDir, { recursive: true });
+        log.debug('Created database directory', { path: dbDir });
+      } catch (error: any) {
+        throw new StorageError(
+          `Failed to create database directory ${dbDir}: ${error.message}`,
+          error
+        );
+      }
+    }
 
     this.db = new Database(this.dbPath);
 
@@ -127,18 +143,6 @@ export class DatabaseSchema {
         )
       `);
 
-      // Domain vocabulary for technology detection and search routing
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS domain_vocabulary (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          domain TEXT NOT NULL, -- 'javascript', 'web-frameworks', 'databases'
-          keywords TEXT NOT NULL, -- JSON array of weighted keywords
-          authority_patterns TEXT, -- JSON array of authority indicators
-          boost_factor REAL DEFAULT 1.0, -- Search boost multiplier
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-
       // Query intent classification cache
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS query_intent_cache (
@@ -163,12 +167,8 @@ export class DatabaseSchema {
         CREATE INDEX IF NOT EXISTS idx_content_metadata_language ON content_metadata(language);
         CREATE INDEX IF NOT EXISTS idx_content_metadata_quality ON content_metadata(quality_score);
         CREATE INDEX IF NOT EXISTS idx_content_metadata_authority ON content_metadata(source_authority);
-        CREATE INDEX IF NOT EXISTS idx_domain_vocabulary_domain ON domain_vocabulary(domain);
         CREATE INDEX IF NOT EXISTS idx_query_intent_expires ON query_intent_cache(expires_at);
       `);
-
-      // Initialize default domain vocabularies
-      this.initializeDefaultDomainVocabularies();
 
     } catch (error: any) {
       throw new StorageError(
@@ -176,104 +176,6 @@ export class DatabaseSchema {
         error
       );
     }
-  }
-
-  /**
-   * Initialize default domain vocabularies for common technologies
-   */
-  private initializeDefaultDomainVocabularies(): void {
-    const defaultVocabularies = [
-      {
-        domain: 'javascript',
-        keywords: JSON.stringify([
-          { keyword: 'javascript', weight: 1.0 },
-          { keyword: 'js', weight: 0.9 },
-          { keyword: 'node', weight: 0.8 },
-          { keyword: 'npm', weight: 0.8 },
-          { keyword: 'ES6', weight: 0.7 },
-          { keyword: 'async', weight: 0.6 },
-          { keyword: 'await', weight: 0.6 },
-          { keyword: 'promise', weight: 0.7 }
-        ]),
-        authority_patterns: JSON.stringify([
-          'developer.mozilla.org',
-          'nodejs.org',
-          'javascript.info'
-        ]),
-        boost_factor: 1.2
-      },
-      {
-        domain: 'web-frameworks',
-        keywords: JSON.stringify([
-          { keyword: 'express', weight: 1.0 },
-          { keyword: 'expressjs', weight: 1.0 },
-          { keyword: 'react', weight: 1.0 },
-          { keyword: 'vue', weight: 1.0 },
-          { keyword: 'angular', weight: 1.0 },
-          { keyword: 'middleware', weight: 0.8 },
-          { keyword: 'router', weight: 0.7 },
-          { keyword: 'component', weight: 0.6 }
-        ]),
-        authority_patterns: JSON.stringify([
-          'expressjs.com',
-          'reactjs.org',
-          'vuejs.org',
-          'angular.io'
-        ]),
-        boost_factor: 1.5
-      },
-      {
-        domain: 'python',
-        keywords: JSON.stringify([
-          { keyword: 'python', weight: 1.0 },
-          { keyword: 'pip', weight: 0.8 },
-          { keyword: 'django', weight: 0.9 },
-          { keyword: 'flask', weight: 0.9 },
-          { keyword: 'import', weight: 0.6 },
-          { keyword: 'def', weight: 0.5 },
-          { keyword: 'class', weight: 0.5 }
-        ]),
-        authority_patterns: JSON.stringify([
-          'python.org',
-          'docs.python.org',
-          'pypi.org'
-        ]),
-        boost_factor: 1.2
-      },
-      {
-        domain: 'databases',
-        keywords: JSON.stringify([
-          { keyword: 'sql', weight: 1.0 },
-          { keyword: 'database', weight: 0.9 },
-          { keyword: 'mongodb', weight: 0.9 },
-          { keyword: 'postgres', weight: 0.9 },
-          { keyword: 'mysql', weight: 0.9 },
-          { keyword: 'sqlite', weight: 0.8 },
-          { keyword: 'query', weight: 0.7 },
-          { keyword: 'schema', weight: 0.7 }
-        ]),
-        authority_patterns: JSON.stringify([
-          'postgresql.org',
-          'mysql.com',
-          'mongodb.com',
-          'sqlite.org'
-        ]),
-        boost_factor: 1.3
-      }
-    ];
-
-    const insertVocabulary = this.db.prepare(`
-      INSERT OR IGNORE INTO domain_vocabulary (domain, keywords, authority_patterns, boost_factor)
-      VALUES (?, ?, ?, ?)
-    `);
-
-    for (const vocab of defaultVocabularies) {
-      insertVocabulary.run(vocab.domain, vocab.keywords, vocab.authority_patterns, vocab.boost_factor);
-    }
-
-    log.info('Default domain vocabularies initialized', {
-      domains: defaultVocabularies.map(v => v.domain)
-    });
   }
 
   /**
