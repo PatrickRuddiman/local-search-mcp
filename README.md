@@ -24,6 +24,7 @@ A Model Context Protocol (MCP) server that enables AI assistants to perform sema
 ## Features
 
 - **Semantic Search**: Natural language queries over indexed documents using transformer embeddings
+- **File Watcher**: Automatic monitoring and indexing of files in a watched directory
 - **Repository Indexing**: Clone and index GitHub repositories with configurable file patterns
 - **File Downloads**: Fetch and index files from URLs with automatic processing
 - **Async Processing**: Non-blocking operations with job progress tracking
@@ -133,7 +134,7 @@ Once configured, the server provides semantic search capabilities within Claude 
 
 ## Tools
 
-The Local Search MCP Server provides 7 tools for document indexing and semantic search:
+The Local Search MCP Server provides 10 tools for document indexing and semantic search:
 
 ### 🔍 Search Tools
 
@@ -216,6 +217,29 @@ Delete a file and all its associated chunks and embeddings from the index.
 **Parameters:**
 - `filePath` (required): Absolute path to file to remove
 
+#### `get_watcher_status`
+Get file watcher status, statistics, and active watch directory information.
+
+**Parameters:** None
+
+**Returns:**
+- Watcher active status
+- Watched directory path
+- Processing statistics (files added, changed, removed)
+- Error count
+- Last activity timestamp
+
+#### `list_watched_files`
+List all files in the watched directory with their indexing status.
+
+**Parameters:**
+- `includeIndexed` (optional, boolean, default: true): Include indexing status for each file
+
+**Returns:**
+- List of files in watched directory
+- File metadata (size, modified date)
+- Indexing status for each file
+
 #### `flush_all`
 Flush the entire database and all downloaded files. **WARNING**: This action is irreversible and will delete all indexed content, documents, and cached files.
 
@@ -294,6 +318,15 @@ The server processes these file types:
 - Data: `.json`, `.csv`
 - Code: `.js`, `.ts`, `.py`, `.java`, `.c`, `.cpp`, `.html`, `.css`
 - Files up to 1GB are supported
+
+### File Watcher
+
+The server automatically monitors a `watched` directory for file changes:
+- **Linux**: `~/.local/share/local-search-mcp/docs/watched/`
+- **macOS**: `~/Library/Application Support/local-search-mcp/docs/watched/`
+- **Windows**: `%LOCALAPPDATA%\local-search-mcp\docs\watched\`
+
+Simply drop files into this directory and they're automatically indexed. See the [File Watcher documentation](./documentation/features/file-watcher.md) for details.
 
 ## Acknowledgments
 
