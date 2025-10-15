@@ -11,6 +11,7 @@ import {
 import { SearchService } from './core/SearchService.js';
 import { BackgroundProcessor } from './core/BackgroundProcessor.js';
 import { JobManager } from './core/JobManager.js';
+import { EmbeddingService } from './core/EmbeddingService.js';
 import { logger, log } from './core/Logger.js';
 import { initializeMcpDirectories, extractRepoName } from './core/PathUtils.js';
 import { randomUUID } from 'node:crypto';
@@ -54,7 +55,7 @@ class LocalSearchServer {
       throw error;
     }
 
-    // Create MCP server
+    // Create MCP server with sampling capability
     this.server = new Server(
       {
         name: 'local-search-mcp',
@@ -63,9 +64,14 @@ class LocalSearchServer {
       {
         capabilities: {
           tools: {},
+          sampling: {}, // Enable sampling for MCP-based embeddings
         },
       }
     );
+
+    // Set MCP server instance for embedding service
+    EmbeddingService.setMCPServer(this.server);
+    log.info('MCP server instance registered with EmbeddingService');
 
     this.setupToolHandlers();
 
@@ -584,6 +590,7 @@ class LocalSearchServer {
               `Status: ${job.status}\n` +
               `Progress: ${job.progress}%\n` +
               `Duration: ${(duration / 1000).toFixed(1)}s\n` +
+              (job.message ? `Message: ${job.message}\n` : '') +
               (job.error ? `Error: ${job.error}\n` : '') +
               (job.status === 'completed' ? 'Job completed successfully!' : '');
 
