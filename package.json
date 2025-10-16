@@ -40,7 +40,7 @@
     "@semantic-release/github": "^11.0.6",
     "@semantic-release/npm": "^12.0.2",
     "@types/better-sqlite3": "^7.6.12",
-    "@types/node": "^20.19.17",
+    "@types/node": "^24.8.0",
     "semantic-release": "^24.2.9",
     "tsx": "^4.7.3",
     "typescript": "^5.9.2"
