@@ -27,7 +27,7 @@
     "@tensorflow/tfjs-node": "^4.17.0",
     "better-sqlite3": "^12.4.1",
     "chokidar": "^4.0.1",
-    "langchain": "^0.2.18",
+    "langchain": "^1.0.2",
     "p-limit": "^7.1.1",
     "repomix": "^1.6.0",
     "sqlite-vec": "^0.1.7-alpha.2"
