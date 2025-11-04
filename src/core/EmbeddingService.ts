@@ -2,6 +2,7 @@ import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { DocumentChunk, EmbeddingError, EmbeddingBackend, EmbeddingConfig, EmbeddingBackendInfo } from '../types/index.js';
 import { log } from './Logger.js';
+import { CPU_MODE_WARNING } from './Constants.js';
 
 // Re-export types for convenience
 export { EmbeddingBackend, EmbeddingConfig, EmbeddingBackendInfo } from '../types/index.js';
@@ -113,7 +114,7 @@ export class EmbeddingService {
       
       switch (envBackend) {
         case 'local-gpu':
-          if (await this.isGPUAvailable()) {
+          if (await EmbeddingService.isGPUAvailable()) {
             this.currentBackend = EmbeddingBackend.LOCAL_GPU;
             return this.currentBackend;
           }
@@ -161,7 +162,7 @@ export class EmbeddingService {
     // Note: MCP sampling is NOT in auto-detection due to client compatibility issues.
     //       Use EMBEDDING_BACKEND=mcp-sampling to explicitly enable it.
     
-    if (await this.isGPUAvailable()) {
+    if (await EmbeddingService.isGPUAvailable()) {
       log.info('GPU detected, using local GPU embeddings');
       this.currentBackend = EmbeddingBackend.LOCAL_GPU;
       return this.currentBackend;
@@ -185,13 +186,6 @@ export class EmbeddingService {
     return this.currentBackend;
   }
 
-  /**
-   * Check if GPU is available (instance method)
-   */
-  private async isGPUAvailable(): Promise<boolean> {
-    return await EmbeddingService.isGPUAvailable();
-  }
-  
   /**
    * Check if MCP sampling is available
    */
@@ -365,7 +359,7 @@ export class EmbeddingService {
       : (this.config.batchSize || 32); // Default 32 for GPU mode
     
     if (isCPUMode) {
-      log.warn('WARNING: Embeddings running in CPU-only mode - this will take a very long time. For 10-100x faster processing, add OPENAI_API_KEY to your environment configuration.');
+      log.warn(CPU_MODE_WARNING);
     }
     
     // Process in batches for efficiency
@@ -652,6 +646,9 @@ export class EmbeddingService {
     
     try {
       // Request embedding-like representation from LLM
+      // Note: The MCP SDK's request options parameter uses Zod schema validation,
+      // but we need to pass runtime options like timeout. Using type assertion
+      // as a workaround until proper types are available.
       const response = await mcpServerInstance.request(
         {
           method: 'sampling/createMessage',
@@ -894,7 +891,7 @@ export class EmbeddingService {
     const info: EmbeddingBackendInfo[] = [];
     
     // Local GPU - cache the result to avoid duplicate async calls
-    const gpuAvailable = await this.isGPUAvailable();
+    const gpuAvailable = await EmbeddingService.isGPUAvailable();
     info.push({
       backend: EmbeddingBackend.LOCAL_GPU,
       available: gpuAvailable,
@@ -920,12 +917,13 @@ export class EmbeddingService {
       reason: this.isCohereConfigured() ? 'API key configured' : 'COHERE_API_KEY not set'
     });
     
-    // MCP Sampling
+    // MCP Sampling - cache the result to avoid duplicate async calls
+    const mcpAvailable = await this.isMCPSamplingAvailable();
     info.push({
       backend: EmbeddingBackend.MCP_SAMPLING,
-      available: await this.isMCPSamplingAvailable(),
+      available: mcpAvailable,
       dimensions: 512,
-      reason: await this.isMCPSamplingAvailable() ? 'MCP server available' : 'MCP server not configured'
+      reason: mcpAvailable ? 'MCP server available' : 'MCP server not configured'
     });
     
     // Local CPU

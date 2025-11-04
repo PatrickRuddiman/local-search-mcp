@@ -253,13 +253,13 @@ export interface EmbeddingConfig {
   
   // External API config
   openaiConfig?: {
-    apiKey: string;
+    apiKey?: string;
     model?: string; // default: 'text-embedding-3-small'
     dimensions?: number; // default: 512
   };
   
   cohereConfig?: {
-    apiKey: string;
+    apiKey?: string;
     model?: string; // default: 'embed-english-v3.0'
     inputType?: 'search_document' | 'search_query';
   };

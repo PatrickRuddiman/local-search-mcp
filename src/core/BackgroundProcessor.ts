@@ -7,6 +7,7 @@ import { JobManager } from './JobManager.js';
 import { log } from './Logger.js';
 import { getMcpPaths, ensureDirectoryExists, extractRepoName } from './PathUtils.js';
 import { DatabaseSchema } from './DatabaseSchema.js';
+import { CPU_MODE_WARNING } from './Constants.js';
 import { runCli } from 'repomix';
 import { promises as fs } from 'fs';
 import * as path from 'path';
@@ -193,14 +194,17 @@ export class BackgroundProcessor {
     const embeddingService = await EmbeddingService.getInstance();
     const modelInfo = embeddingService.getModelInfo();
     
+    // Import EmbeddingBackend enum
+    const { EmbeddingBackend } = await import('../types/index.js');
+    
     // Check if using CPU mode and add warning to job metadata
-    const isCPUMode = modelInfo.backend === 'local-cpu';
+    const isCPUMode = modelInfo.backend === EmbeddingBackend.LOCAL_CPU;
     if (isCPUMode) {
       log.warn('CPU-only mode detected for embeddings - this will be slow');
       this.jobManager.updateProgress(
         jobId,
         startProgress,
-        'WARNING: Embeddings running in CPU-only mode - this will take a very long time. For 10-100x faster processing, add OPENAI_API_KEY to your environment configuration.'
+        CPU_MODE_WARNING
       );
     }
     
