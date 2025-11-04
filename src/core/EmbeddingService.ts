@@ -147,6 +147,10 @@ export class EmbeddingService {
           }
           log.warn('EMBEDDING_BACKEND=cohere but COHERE_API_KEY not set, falling back');
           break;
+          
+        default:
+          log.warn(`Unknown EMBEDDING_BACKEND value: '${envBackend}'. Valid values: auto, local-gpu, local-cpu, openai, cohere, mcp-sampling. Falling back to auto-detection.`);
+          break;
       }
     }
     
@@ -182,7 +186,7 @@ export class EmbeddingService {
   }
 
   /**
-   * Check if GPU is available
+   * Check if GPU is available (instance method)
    */
   private async isGPUAvailable(): Promise<boolean> {
     return await EmbeddingService.isGPUAvailable();
@@ -489,7 +493,9 @@ export class EmbeddingService {
     const dimensions = this.config.openaiConfig?.dimensions || 512;
     
     const results: DocumentChunk[] = [];
-    const batchSize = 100; // OpenAI allows up to 2048 inputs per request
+    // OpenAI allows up to 2048 inputs per request, but we use 100 for reliability
+    // and to avoid hitting rate/memory limits
+    const batchSize = 100;
     
     for (let i = 0; i < chunks.length; i += batchSize) {
       const batch = chunks.slice(i, i + batchSize);
@@ -693,13 +699,22 @@ export class EmbeddingService {
         text = response.content.find((c: any) => c.type === 'text')?.text || '';
       }
       
-      // Try to parse as JSON array
-      const jsonMatch = text.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (Array.isArray(parsed) && parsed.every((n: any) => typeof n === 'number')) {
-          return parsed;
+      // Try to parse the whole text as JSON array first
+      let parsed: any = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch (_) {
+        // If direct parse fails, try to extract a valid array using a stricter regex
+        // Matches arrays of numbers with optional decimals and signs
+        const arrayRegex = /\[(?:\s*-?\d+(?:\.\d+)?(?:e[+-]?\d+)?\s*,)*\s*-?\d+(?:\.\d+)?(?:e[+-]?\d+)?\s*\]/;
+        const jsonMatch = text.match(arrayRegex);
+        if (jsonMatch) {
+          parsed = JSON.parse(jsonMatch[0]);
         }
+      }
+      
+      if (Array.isArray(parsed) && parsed.every((n: any) => typeof n === 'number')) {
+        return parsed;
       }
       
       throw new Error('Could not parse embedding from MCP response');
@@ -857,7 +872,8 @@ export class EmbeddingService {
   }
 
   /**
-   * Check if GPU is available (TensorFlow.js will use it automatically if available)
+   * Check if GPU is available (static method)
+   * TensorFlow.js will use GPU automatically if available via tfjs-node
    * @returns GPU availability
    */
   static async isGPUAvailable(): Promise<boolean> {
@@ -877,12 +893,13 @@ export class EmbeddingService {
   async getBackendInfo(): Promise<EmbeddingBackendInfo[]> {
     const info: EmbeddingBackendInfo[] = [];
     
-    // Local GPU
+    // Local GPU - cache the result to avoid duplicate async calls
+    const gpuAvailable = await this.isGPUAvailable();
     info.push({
       backend: EmbeddingBackend.LOCAL_GPU,
-      available: await this.isGPUAvailable(),
+      available: gpuAvailable,
       dimensions: 512,
-      reason: await this.isGPUAvailable() ? 'GPU available' : 'No GPU detected'
+      reason: gpuAvailable ? 'GPU available' : 'No GPU detected'
     });
     
     // OpenAI
@@ -927,8 +944,18 @@ export class EmbeddingService {
    * @returns Model information
    */
   getModelInfo(): { model: string; dimensions: number; gpuEnabled: boolean; backend?: EmbeddingBackend } {
+    // Return the actual model name based on backend
+    let modelName = 'universal-sentence-encoder';
+    if (this.currentBackend === EmbeddingBackend.OPENAI) {
+      modelName = this.config.openaiConfig?.model || 'text-embedding-3-small';
+    } else if (this.currentBackend === EmbeddingBackend.COHERE) {
+      modelName = this.config.cohereConfig?.model || 'embed-english-v3.0';
+    } else if (this.currentBackend === EmbeddingBackend.MCP_SAMPLING) {
+      modelName = 'mcp-sampling';
+    }
+    
     return {
-      model: 'universal-sentence-encoder',
+      model: modelName,
       dimensions: 512,
       gpuEnabled: tfBackend === 'tensorflow-node',
       backend: this.currentBackend
