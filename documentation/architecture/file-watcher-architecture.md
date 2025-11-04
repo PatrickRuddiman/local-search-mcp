@@ -581,13 +581,15 @@ documentation/
 
 ### Direct
 
-- **chokidar**: ^4.0.3 - Filesystem watching
+- **chokidar**: ^4.0.3 - Filesystem watching (added in this PR)
+- **p-limit**: ^6.1.0 - Concurrency control for database operations
 
 ### Indirect
 
 - **FileProcessor**: Text extraction and chunking
 - **EmbeddingService**: Generate embeddings
 - **VectorIndex**: Store and query vectors
+- **ServiceLocator**: Singleton access to shared services
 - **JobManager**: Job tracking
 - **Logger**: Event logging
 

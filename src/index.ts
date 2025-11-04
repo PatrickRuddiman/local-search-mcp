@@ -55,10 +55,12 @@ class LocalSearchServer {
       // Initialize and start file watcher
       this.fileWatcher = new FileWatcher(this.backgroundProcessor, this.jobManager);
       this.fileWatcher.start().catch(error => {
-        log.error('Failed to start file watcher', error);
+        log.error('Failed to start file watcher - watcher will not be operational', error);
+        // Note: Server continues running even if watcher fails to start
+        // Users can check watcher status via get_watcher_status tool
       });
 
-      log.info('File watcher initialized and started', {
+      log.info('File watcher initialized', {
         watchedDir: getMcpPaths().watched
       });
     } catch (error: any) {
@@ -91,8 +93,11 @@ class LocalSearchServer {
     process.on('SIGINT', async () => {
       log.info('Received SIGINT, starting graceful shutdown');
       try {
-        await this.fileWatcher.stop();
-        await this.server.close();
+        // Perform shutdown operations in parallel where safe
+        await Promise.all([
+          this.fileWatcher.stop(),
+          this.server.close()
+        ]);
         this.searchService.dispose();
         log.info('Graceful shutdown completed');
       } catch (error: any) {
@@ -750,8 +755,16 @@ This shows which files are present and whether they've been indexed. To add file
 
       const status = this.fileWatcher.getStatus();
       
+      let statusEmoji = status.isActive ? '✅ Active' : '❌ Inactive';
+      let errorInfo = '';
+      if (status.startupError) {
+        statusEmoji = '⚠️ Failed to Start';
+        errorInfo = `\n❌ Startup Error: ${status.startupError}\n`;
+      }
+      
       const message = `📁 **File Watcher Status**\n\n` +
-        `🔄 Status: ${status.isActive ? '✅ Active' : '❌ Inactive'}\n` +
+        `🔄 Status: ${statusEmoji}\n` +
+        errorInfo +
         `📂 Watched Directory: ${status.watchedDirectory}\n` +
         `📊 Statistics:\n` +
         `   • Files Added: ${status.stats.filesAdded}\n` +

@@ -6,6 +6,8 @@ import { getMcpPaths } from './PathUtils.js';
 import { BackgroundProcessor } from './BackgroundProcessor.js';
 import { JobManager } from './JobManager.js';
 import { FileProcessor } from './FileProcessor.js';
+import { ServiceLocator } from './ServiceLocator.js';
+import pLimit from 'p-limit';
 
 interface WatcherStats {
   filesAdded: number;
@@ -34,9 +36,11 @@ export class FileWatcher {
   private jobManager: JobManager;
   private fileProcessor: FileProcessor;
   private isActive: boolean = false;
+  private startupError: string | null = null;
   private stats: WatcherStats;
   private debounceTimers: Map<string, NodeJS.Timeout> = new Map();
   private readonly debounceDelay: number = 500; // ms
+  private readonly indexCheckLimit = pLimit(10); // Limit concurrent index checks to 10
 
   constructor(
     backgroundProcessor: BackgroundProcessor,
@@ -77,10 +81,13 @@ export class FileWatcher {
       }
 
       // Initialize chokidar watcher
+      // Note: ignoreInitial is false to process existing files on startup.
+      // This is intentional - users expect files already in the directory to be indexed.
+      // For directories with many files, processing happens asynchronously via job queue.
       this.watcher = chokidar.watch(this.watchedDir, {
         ignored: /(^|[\/\\])\../, // Ignore dotfiles
         persistent: true,
-        ignoreInitial: false, // Process existing files on startup
+        ignoreInitial: false, // Process existing files on startup (intentional)
         awaitWriteFinish: {
           stabilityThreshold: 300,
           pollInterval: 100
@@ -105,6 +112,18 @@ export class FileWatcher {
     } catch (error: any) {
       log.error('Failed to start FileWatcher', error, { watchedDir: this.watchedDir });
       this.isActive = false;
+      this.startupError = error.message;
+      
+      // Clean up watcher if it was created before error
+      if (this.watcher) {
+        try {
+          await this.watcher.close();
+          this.watcher = null;
+        } catch (closeError: any) {
+          log.error('Error closing watcher during cleanup', closeError);
+        }
+      }
+      
       throw error;
     }
   }
@@ -297,12 +316,14 @@ export class FileWatcher {
     watchedDirectory: string;
     stats: WatcherStats;
     pendingDebounces: number;
+    startupError: string | null;
   } {
     return {
       isActive: this.isActive,
       watchedDirectory: this.watchedDir,
       stats: { ...this.stats },
-      pendingDebounces: this.debounceTimers.size
+      pendingDebounces: this.debounceTimers.size,
+      startupError: this.startupError
     };
   }
 
@@ -343,13 +364,15 @@ export class FileWatcher {
       // Filter out null entries
       const validFiles = fileInfos.filter((f): f is WatchedFileInfo => f !== null);
 
-      // If index status is requested, batch check all files
+      // If index status is requested, batch check all files with concurrency limit
       if (includeIndexed && validFiles.length > 0) {
-        // Parallelize index status checks
+        // Parallelize index status checks with concurrency limit to avoid overwhelming DB
         await Promise.all(
-          validFiles.map(async (fileInfo) => {
-            fileInfo.isIndexed = await this.isFileIndexed(fileInfo.path);
-          })
+          validFiles.map((fileInfo) =>
+            this.indexCheckLimit(async () => {
+              fileInfo.isIndexed = await this.isFileIndexed(fileInfo.path);
+            })
+          )
         );
       }
 
@@ -397,7 +420,6 @@ export class FileWatcher {
    */
   private async isFileIndexed(filePath: string): Promise<boolean> {
     try {
-      const { ServiceLocator } = await import('./ServiceLocator.js');
       const serviceLocator = ServiceLocator.getInstance();
       const vectorIndex = serviceLocator.getVectorIndex();
       
