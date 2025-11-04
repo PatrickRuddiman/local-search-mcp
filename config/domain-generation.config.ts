@@ -21,7 +21,7 @@ export const config = {
     ] as const,
     packagesPerPlatform: 100,
     rateLimitDelay: 1100, // ms between requests (55 req/min, safely under 60/min limit)
-    timeout: 120000, // 60 seconds (increased for slow npm queries)
+    timeout: 120000, // 120 seconds (2 minutes, increased for slow npm queries)
     retries: 3, // Number of retries for failed requests
   },
 
