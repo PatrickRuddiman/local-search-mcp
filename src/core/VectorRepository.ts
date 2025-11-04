@@ -287,6 +287,22 @@ export class VectorRepository {
   }
 
   /**
+   * Check if a file is indexed
+   * @param filePath File path
+   * @returns True if file has any chunks in the index
+   */
+  async isFileIndexed(filePath: string): Promise<boolean> {
+    try {
+      const stmt = this.db.prepare('SELECT COUNT(*) as count FROM vec_chunks WHERE file_path = ?');
+      const result = stmt.get(filePath) as { count: number };
+      return result.count > 0;
+    } catch (error: any) {
+      log.debug('Error checking if file is indexed', { filePath, error });
+      return false;
+    }
+  }
+
+  /**
    * Delete chunks for a specific file
    * @param filePath File path
    * @returns Number of chunks deleted

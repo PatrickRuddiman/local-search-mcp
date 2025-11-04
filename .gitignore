@@ -83,3 +83,4 @@ node_modules/
 local-search-index.db
 local-search-index.db-shm
 local-search-index.db-wal
+.devcontainer/mcp.json

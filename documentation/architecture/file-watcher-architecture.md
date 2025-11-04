@@ -581,8 +581,7 @@ documentation/
 
 ### Direct
 
-- **chokidar**: ^4.0.1 - Filesystem watching
-- Already installed, no new dependencies
+- **chokidar**: ^4.0.3 - Filesystem watching
 
 ### Indirect
 

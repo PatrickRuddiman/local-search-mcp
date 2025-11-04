@@ -113,11 +113,6 @@ export class FileWatcher {
    * Stop watching the directory
    */
   async stop(): Promise<void> {
-    if (!this.isActive) {
-      log.debug('FileWatcher not active, ignoring stop request');
-      return;
-    }
-
     try {
       log.info('Stopping FileWatcher');
 
@@ -127,7 +122,7 @@ export class FileWatcher {
       }
       this.debounceTimers.clear();
 
-      // Close the watcher
+      // Close the watcher if present (regardless of isActive state)
       if (this.watcher) {
         await this.watcher.close();
         this.watcher = null;
@@ -146,106 +141,81 @@ export class FileWatcher {
    * Handle file addition event with debouncing
    */
   private handleFileAdd(filePath: string): void {
-    this.debounceFileEvent(filePath, 'add', async () => {
-      try {
-        log.debug('File added to watched directory', { filePath });
-
-        // Validate file is supported
-        if (!this.fileProcessor.isFileSupported(filePath)) {
-          log.debug('Skipping unsupported file type', { filePath, ext: path.extname(filePath) });
-          return;
-        }
-
-        // Get file stats
-        const stats = await fs.stat(filePath);
-        if (!stats.isFile()) {
-          log.debug('Skipping non-file', { filePath });
-          return;
-        }
-
-        log.info('Processing newly added file', {
-          filePath,
-          basename: path.basename(filePath),
-          size: stats.size,
-          sizeKB: (stats.size / 1024).toFixed(1)
-        });
-
-        // Create background job for processing
-        const jobId = this.jobManager.createJob('watch_add', {
-          filePath,
-          eventType: 'add'
-        });
-
-        // Process in background
-        this.backgroundProcessor.processWatchedFile(jobId, filePath, 'add')
-          .then(() => {
-            this.stats.filesAdded++;
-            this.stats.lastActivity = new Date();
-            log.info('Successfully processed added file', { filePath, jobId });
-          })
-          .catch((error: any) => {
-            this.stats.errors++;
-            log.error('Failed to process added file', error, { filePath, jobId });
-          });
-
-      } catch (error: any) {
-        this.stats.errors++;
-        log.error('Error handling file add event', error, { filePath });
-      }
-    });
+    this.debounceFileEvent(filePath, 'add', () => this.processFileEvent(filePath, 'add'));
   }
 
   /**
    * Handle file change event with debouncing
    */
   private handleFileChange(filePath: string): void {
-    this.debounceFileEvent(filePath, 'change', async () => {
-      try {
-        log.debug('File changed in watched directory', { filePath });
+    this.debounceFileEvent(filePath, 'change', () => this.processFileEvent(filePath, 'change'));
+  }
 
-        // Validate file is supported
-        if (!this.fileProcessor.isFileSupported(filePath)) {
-          log.debug('Skipping unsupported file type', { filePath });
+  /**
+   * Common file processing logic for add and change events
+   */
+  private async processFileEvent(filePath: string, eventType: 'add' | 'change'): Promise<void> {
+    try {
+      const eventLabel = eventType === 'add' ? 'added' : 'changed';
+      log.debug(`File ${eventLabel} in watched directory`, { filePath });
+
+      // Validate file is supported
+      if (!this.fileProcessor.isFileSupported(filePath)) {
+        log.debug('Skipping unsupported file type', { filePath, ext: path.extname(filePath) });
+        return;
+      }
+
+      // Get file stats and verify it's a file
+      let stats;
+      try {
+        stats = await fs.stat(filePath);
+        if (!stats.isFile()) {
+          log.debug('Skipping non-file', { filePath });
           return;
         }
-
-        // Verify file still exists (handle rapid changes)
-        try {
-          const stats = await fs.stat(filePath);
-          if (!stats.isFile()) {
-            log.debug('Skipping non-file', { filePath });
-            return;
-          }
-        } catch (error) {
+      } catch (error) {
+        if (eventType === 'change') {
           log.debug('File no longer exists, skipping change event', { filePath });
           return;
         }
+        throw error;
+      }
 
-        log.info('Processing changed file', { filePath, basename: path.basename(filePath) });
+      const logDetails = {
+        filePath,
+        basename: path.basename(filePath),
+        size: stats.size,
+        ...(eventType === 'add' && { sizeKB: (stats.size / 1024).toFixed(1) })
+      };
+      log.info(`Processing ${eventLabel} file`, logDetails);
 
-        // Create background job for re-processing
-        const jobId = this.jobManager.createJob('watch_change', {
-          filePath,
-          eventType: 'change'
+      // Create background job for processing
+      const jobType = eventType === 'add' ? 'watch_add' : 'watch_change';
+      const jobId = this.jobManager.createJob(jobType, {
+        filePath,
+        eventType
+      });
+
+      // Process in background
+      this.backgroundProcessor.processWatchedFile(jobId, filePath, eventType)
+        .then(() => {
+          if (eventType === 'add') {
+            this.stats.filesAdded++;
+          } else {
+            this.stats.filesChanged++;
+          }
+          this.stats.lastActivity = new Date();
+          log.info(`Successfully processed ${eventLabel} file`, { filePath, jobId });
+        })
+        .catch((error: any) => {
+          this.stats.errors++;
+          log.error(`Failed to process ${eventLabel} file`, error, { filePath, jobId });
         });
 
-        // Re-process in background
-        this.backgroundProcessor.processWatchedFile(jobId, filePath, 'change')
-          .then(() => {
-            this.stats.filesChanged++;
-            this.stats.lastActivity = new Date();
-            log.info('Successfully processed changed file', { filePath, jobId });
-          })
-          .catch((error: any) => {
-            this.stats.errors++;
-            log.error('Failed to process changed file', error, { filePath, jobId });
-          });
-
-      } catch (error: any) {
-        this.stats.errors++;
-        log.error('Error handling file change event', error, { filePath });
-      }
-    });
+    } catch (error: any) {
+      this.stats.errors++;
+      log.error(`Error handling file ${eventType} event`, error, { filePath });
+    }
   }
 
   /**
@@ -341,12 +311,11 @@ export class FileWatcher {
    */
   async listWatchedFiles(includeIndexed: boolean = true): Promise<WatchedFileInfo[]> {
     try {
-      const files: WatchedFileInfo[] = [];
-
       // Read directory recursively
       const entries = await this.readDirectoryRecursive(this.watchedDir);
 
-      for (const entry of entries) {
+      // Parallelize file stat operations
+      const fileInfoPromises = entries.map(async (entry) => {
         try {
           const stats = await fs.stat(entry);
           
@@ -359,19 +328,32 @@ export class FileWatcher {
               isIndexed: false
             };
 
-            // Check if file is indexed (if requested)
-            if (includeIndexed) {
-              fileInfo.isIndexed = await this.isFileIndexed(entry);
-            }
-
-            files.push(fileInfo);
+            return fileInfo;
           }
+          return null;
         } catch (error) {
           log.warn('Error getting file info', { path: entry, error });
+          return null;
         }
+      });
+
+      // Wait for all file stats to complete
+      const fileInfos = await Promise.all(fileInfoPromises);
+      
+      // Filter out null entries
+      const validFiles = fileInfos.filter((f): f is WatchedFileInfo => f !== null);
+
+      // If index status is requested, batch check all files
+      if (includeIndexed && validFiles.length > 0) {
+        // Parallelize index status checks
+        await Promise.all(
+          validFiles.map(async (fileInfo) => {
+            fileInfo.isIndexed = await this.isFileIndexed(fileInfo.path);
+          })
+        );
       }
 
-      return files;
+      return validFiles;
 
     } catch (error: any) {
       log.error('Error listing watched files', error, { watchedDir: this.watchedDir });
@@ -419,10 +401,8 @@ export class FileWatcher {
       const serviceLocator = ServiceLocator.getInstance();
       const vectorIndex = serviceLocator.getVectorIndex();
       
-      // Query database to check if this file has any chunks
-      const db = (vectorIndex as any).db; // Access private db property
-      const result = db.prepare('SELECT COUNT(*) as count FROM document_chunks WHERE file_path = ?').get(filePath) as { count: number };
-      return result.count > 0;
+      // Use public API instead of accessing private db property
+      return await vectorIndex.isFileIndexed(filePath);
     } catch (error) {
       log.debug('Error checking if file is indexed', { filePath, error });
       return false;

@@ -1,7 +1,10 @@
 {
   "name": "Local Search MCP",
-  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
-  "features": {},
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:0-20",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/common-utils:2": {}
+  },
   "customizations": {
     "vscode": {
       "extensions": [
@@ -12,5 +15,6 @@
     }
   },
   "forwardPorts": [],
-  "postCreateCommand": "npm install"
+  "postCreateCommand": "npm install",
+  "remoteUser": "node"
 }
