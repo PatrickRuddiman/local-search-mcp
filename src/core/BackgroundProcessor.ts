@@ -7,6 +7,7 @@ import { JobManager } from './JobManager.js';
 import { log } from './Logger.js';
 import { getMcpPaths, ensureDirectoryExists, extractRepoName } from './PathUtils.js';
 import { DatabaseSchema } from './DatabaseSchema.js';
+import { CPU_MODE_WARNING } from './Constants.js';
 import { runCli } from 'repomix';
 import { promises as fs } from 'fs';
 import * as path from 'path';
@@ -191,6 +192,22 @@ export class BackgroundProcessor {
     // Process small batches with setImmediate() yielding between each batch
     // This keeps MCP server responsive during embedding generation
     const embeddingService = await EmbeddingService.getInstance();
+    const modelInfo = embeddingService.getModelInfo();
+    
+    // Import EmbeddingBackend enum
+    const { EmbeddingBackend } = await import('../types/index.js');
+    
+    // Check if using CPU mode and add warning to job metadata
+    const isCPUMode = modelInfo.backend === EmbeddingBackend.LOCAL_CPU;
+    if (isCPUMode) {
+      log.warn('CPU-only mode detected for embeddings - this will be slow');
+      this.jobManager.updateProgress(
+        jobId,
+        startProgress,
+        CPU_MODE_WARNING
+      );
+    }
+    
     const batchSize = 10; // Small batches to enable frequent yielding
     const results: DocumentChunk[] = [];
 
@@ -204,19 +221,24 @@ export class BackgroundProcessor {
       log.debug(`Processing embedding batch ${batchIndex + 1}/${totalBatches}`, {
         batchSize: batch.length,
         totalProcessed: end,
-        remaining: chunks.length - end
+        remaining: chunks.length - end,
+        backend: modelInfo.backend
       });
 
       // Process this batch
       const embeddedBatch = await embeddingService.generateEmbeddings(batch);
       results.push(...embeddedBatch);
 
-      // Update progress after each batch
+      // Update progress after each batch with backend info
       const progress = ((batchIndex + 1) / totalBatches) * progressRange;
+      const progressMessage = isCPUMode
+        ? `Processed ${end}/${chunks.length} chunks (CPU mode - slow) (${Math.round(progress * 100 / progressRange)}% of embedding phase)`
+        : `Processed ${end}/${chunks.length} chunks (${Math.round(progress * 100 / progressRange)}% of embedding phase)`;
+      
       this.jobManager.updateProgress(
         jobId,
         startProgress + progress,
-        `Processed ${end}/${chunks.length} chunks (${Math.round(progress * 100 / progressRange)}% of embedding phase)`
+        progressMessage
       );
 
       // IMPORTANT: Yield control back to event loop after each batch
@@ -229,6 +251,7 @@ export class BackgroundProcessor {
     log.debug('Embedding generation completed with event loop yielding', {
       totalChunks: chunks.length,
       totalBatches,
+      backend: modelInfo.backend,
       strategy: 'event-loop-yielding'
     });
 
