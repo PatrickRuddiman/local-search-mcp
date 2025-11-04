@@ -84,6 +84,48 @@ export class BackgroundProcessor {
   }
 
   /**
+   * Process watched file in background with accurate progress
+   */
+  async processWatchedFile(
+    jobId: string,
+    filePath: string,
+    eventType: 'add' | 'change' | 'unlink'
+  ): Promise<void> {
+    try {
+      if (eventType === 'unlink') {
+        // Handle file removal
+        this.jobManager.updateProgress(jobId, 10, 'Removing file from index...');
+        
+        const { ServiceLocator } = await import('./ServiceLocator.js');
+        const serviceLocator = ServiceLocator.getInstance();
+        const vectorIndex = serviceLocator.getVectorIndex();
+        
+        const deletedCount = await vectorIndex.deleteFile(filePath);
+        
+        this.jobManager.updateProgress(jobId, 100, `Removed ${deletedCount} chunks from index`);
+        this.jobManager.completeJob(jobId, {
+          success: true,
+          filePath,
+          deletedChunks: deletedCount,
+          eventType
+        });
+      } else {
+        // Handle file add/change - process and index the file
+        await this.processFile(jobId, filePath, 0, 100);
+        
+        this.jobManager.completeJob(jobId, {
+          success: true,
+          filePath,
+          eventType
+        });
+      }
+    } catch (error: any) {
+      log.error('Watched file processing failed', error, { jobId, filePath, eventType });
+      this.jobManager.failJob(jobId, error.message);
+    }
+  }
+
+  /**
    * Process file fetch in background with accurate progress
    */
   async processFileFetch(

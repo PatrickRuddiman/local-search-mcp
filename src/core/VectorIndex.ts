@@ -67,6 +67,15 @@ export class VectorIndex {
   }
 
   /**
+   * Check if a file is indexed
+   * @param filePath File path
+   * @returns True if file has any chunks in the index
+   */
+  async isFileIndexed(filePath: string): Promise<boolean> {
+    return await this.repository.isFileIndexed(filePath);
+  }
+
+  /**
    * Delete chunks for a specific file
    * @param filePath File path
    * @returns Number of chunks deleted

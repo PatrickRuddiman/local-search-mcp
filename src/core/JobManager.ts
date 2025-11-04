@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 
 export interface Job {
   id: string;
-  type: 'fetch_repo' | 'fetch_file' | 'index_directory';
+  type: 'fetch_repo' | 'fetch_file' | 'index_directory' | 'watch_add' | 'watch_change' | 'watch_remove';
   status: 'running' | 'completed' | 'failed';
   progress: number; // 0-100
   startTime: Date;
