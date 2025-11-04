@@ -11,9 +11,9 @@ export class FileProcessor {
   private maxFileSizeMB: number;
   private contentClassifier: ContentClassifier;
   private contentEnhancer: ContentEnhancer;
-  private domainExtractor: DomainExtractor | null = null;
+  private domainExtractor: DomainExtractor;
 
-  constructor(maxFileSizeMB: number = 1024, database?: any) {
+  constructor(maxFileSizeMB: number = 1024) {
     log.debug('Initializing FileProcessor', { maxFileSizeMB });
     this.maxFileSizeMB = maxFileSizeMB;
     this.supportedExtensions = new Set([
@@ -25,11 +25,7 @@ export class FileProcessor {
     // Initialize content processing components
     this.contentClassifier = new ContentClassifier();
     this.contentEnhancer = new ContentEnhancer();
-    
-    // Initialize domain extractor if database is provided
-    if (database) {
-      this.domainExtractor = new DomainExtractor(database);
-    }
+    this.domainExtractor = new DomainExtractor();
     
     log.debug('FileProcessor initialized successfully', {
       supportedExtensions: Array.from(this.supportedExtensions),
@@ -270,15 +266,12 @@ export class FileProcessor {
         filePath
       );
       
-      // Extract domain information if domain extractor is available
-      let domains: string[] = [];
-      if (this.domainExtractor) {
-        domains = await this.domainExtractor.extractDomainTags(
-          enhancementResult.processedContent,
-          filePath,
-          classificationResult.classification.language
-        );
-      }
+      // Extract domain information
+      const domains = await this.domainExtractor.extractDomainTags(
+        enhancementResult.processedContent,
+        filePath,
+        classificationResult.classification.language
+      );
       
       // Get file stats for metadata
       const stats = await fs.stat(filePath);

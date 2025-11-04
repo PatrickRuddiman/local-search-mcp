@@ -54,8 +54,8 @@ export class SearchService {
     });
     this.learningAlgorithm = new LearningAlgorithm();
 
-    // Initialize domain extractor with database for vocabulary lookups
-    this.domainExtractor = new DomainExtractor(schema.getDatabase());
+    // Initialize domain extractor with dynamic content analysis
+    this.domainExtractor = new DomainExtractor();
 
     // Initialize learning parameters from database (async)
     this.initializeLearningParams();
@@ -87,6 +87,8 @@ export class SearchService {
   private async ensureEmbeddingService(): Promise<EmbeddingService> {
     if (!this.embeddingService) {
       this.embeddingService = await EmbeddingService.getInstance(this.config.embeddingConfig);
+      // Set embedding service on domain extractor for semantic analysis
+      this.domainExtractor.setEmbeddingService(this.embeddingService);
     }
     return this.embeddingService;
   }

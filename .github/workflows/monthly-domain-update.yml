@@ -1,0 +1,103 @@
+name: Monthly Domain Update
+
+on:
+  schedule:
+    # Run on the 1st of every month at 00:00 UTC
+    - cron: '0 0 1 * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  generate-domains:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Fetch packages from Libraries.io
+        env:
+          LIBRARIESIO_API_KEY: ${{ secrets.LIBRARIESIO_API_KEY }}
+        run: npm run generate:1-fetch
+
+      - name: Cluster technologies
+        run: npm run generate:2-cluster
+
+      - name: Enrich with LLM
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: npm run generate:3-enrich
+
+      - name: Generate embeddings
+        run: npm run generate:4-embeddings
+
+      - name: Generate TypeScript code
+        run: npm run generate:5-codegen
+
+      - name: Validate generated domains
+        run: npm run generate:validate
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          git diff --quiet src/generated/ || echo "has_changes=true" >> $GITHUB_OUTPUT
+
+      - name: Commit domain updates to current branch
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/generated/
+          git commit -m 'fix: update domain definitions with latest package data
+
+          - Updated domain exemplars from Libraries.io data
+          - Regenerated embeddings with Universal Sentence Encoder
+          - LLM-enriched descriptions using GPT-4
+          - Automated monthly update from workflow'
+          git push
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: domain-generation-data
+          path: |
+            data/packages-raw.json
+            data/technology-clusters.json
+            data/domains-generated.json
+          retention-days: 90
+
+      - name: Comment on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Monthly Domain Update Failed',
+              body: `The automated domain update workflow failed.
+              
+              **Run ID:** ${{ github.run_id }}
+              **Run URL:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+              
+              Please check the workflow logs and fix any issues.
+              
+              Common issues:
+              - API rate limits (Libraries.io or OpenAI)
+              - Invalid API keys
+              - Validation failures
+              
+              You can re-run the workflow manually once the issue is resolved.`,
+              labels: ['bug', 'automated', 'domain-update']
+            });

@@ -1,29 +1,238 @@
 import path from 'path';
-import * as Database from 'better-sqlite3';
-import { DomainVocabulary, KeywordWeight, DomainMatch } from '../types/index.js';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { decode } from '@msgpack/msgpack';
+import { DomainMatch } from '../types/index.js';
 import { log } from './Logger.js';
+import { EmbeddingService } from './EmbeddingService.js';
+import { DOMAIN_EXEMPLARS, getDomainExemplar, getBoostFactor } from '../generated/DomainExemplars.js';
 
 /**
- * Domain extractor for detecting technology keywords and domain classification
+ * Hybrid domain extractor combining pattern matching with semantic analysis
+ * Based on research into modern code search and semantic classification systems
+ * 
+ * Architecture:
+ * - Fast Path: Pattern matching for explicit signals (imports, decorators, file paths)
+ * - Semantic Path: Embedding-based matching for ambiguous or conceptual queries
+ * - Cascaded approach: Fast first, then semantic only when needed
  */
 export class DomainExtractor {
-  private db: Database.Database;
-  private vocabularies: Map<string, DomainVocabulary> = new Map();
-  private lastVocabularyUpdate = 0;
-  private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+  private embeddingService: EmbeddingService | null = null;
+  private domainEmbeddingsCache: Map<string, number[]> = new Map();
+  private isInitializingEmbeddings = false;
 
-  constructor(database: Database.Database) {
-    this.db = database;
-    this.loadVocabularies();
+  // Technology to domain mappings (kept from original for fast pattern matching)
+  private static readonly TECHNOLOGY_DOMAINS: Record<string, string[]> = {
+    'react': ['react', 'frontend', 'ui-library', 'web-frameworks', 'javascript'],
+    'vue': ['vue', 'frontend', 'ui-library', 'web-frameworks', 'javascript'],
+    'angular': ['angular', 'frontend', 'ui-library', 'web-frameworks', 'typescript'],
+    'svelte': ['svelte', 'frontend', 'ui-library', 'web-frameworks', 'javascript'],
+    'next': ['nextjs', 'react', 'frontend', 'ssr', 'web-frameworks'],
+    'nuxt': ['nuxtjs', 'vue', 'frontend', 'ssr', 'web-frameworks'],
     
-    log.info('DomainExtractor initialized', {
-      vocabularyCount: this.vocabularies.size,
-      domains: Array.from(this.vocabularies.keys())
+    'express': ['express', 'nodejs', 'backend', 'web-server', 'javascript'],
+    'fastify': ['fastify', 'nodejs', 'backend', 'web-server', 'javascript'],
+    'koa': ['koa', 'nodejs', 'backend', 'web-server', 'javascript'],
+    'nest': ['nestjs', 'nodejs', 'backend', 'typescript', 'web-frameworks'],
+    'django': ['django', 'python', 'backend', 'web-frameworks', 'mvc'],
+    'flask': ['flask', 'python', 'backend', 'web-frameworks', 'microframework'],
+    'fastapi': ['fastapi', 'python', 'backend', 'api', 'async'],
+    'spring': ['spring', 'java', 'backend', 'enterprise', 'web-frameworks'],
+    
+    'mongodb': ['mongodb', 'database', 'nosql', 'document-db'],
+    'postgres': ['postgresql', 'database', 'sql', 'relational'],
+    'mysql': ['mysql', 'database', 'sql', 'relational'],
+    'redis': ['redis', 'cache', 'database', 'key-value', 'nosql'],
+    'elasticsearch': ['elasticsearch', 'search', 'database', 'nosql'],
+    
+    'docker': ['docker', 'containerization', 'devops', 'infrastructure'],
+    'kubernetes': ['kubernetes', 'k8s', 'orchestration', 'devops', 'infrastructure'],
+    'terraform': ['terraform', 'iac', 'devops', 'infrastructure'],
+    'aws': ['aws', 'cloud', 'infrastructure', 'devops'],
+    
+    'jest': ['jest', 'testing', 'javascript', 'unit-testing'],
+    'pytest': ['pytest', 'testing', 'python', 'unit-testing'],
+    'cypress': ['cypress', 'testing', 'e2e', 'frontend'],
+    
+    'tensorflow': ['tensorflow', 'machine-learning', 'ai', 'python'],
+    'pytorch': ['pytorch', 'machine-learning', 'ai', 'python'],
+    'pandas': ['pandas', 'data-analysis', 'python', 'data-science'],
+    
+    'graphql': ['graphql', 'api', 'query-language'],
+    'rest': ['rest', 'api', 'http'],
+    'websocket': ['websocket', 'real-time', 'communication'],
+    
+    'typescript': ['typescript', 'javascript', 'typed-language'],
+    'python': ['python', 'scripting', 'backend'],
+    'java': ['java', 'jvm', 'enterprise'],
+    'go': ['golang', 'backend', 'systems'],
+    'rust': ['rust', 'systems', 'performance']
+  };
+
+  // Framework-specific patterns (kept for fast detection)
+  private static readonly FRAMEWORK_PATTERNS: Record<string, RegExp[]> = {
+    'react': [
+      /\buseState\s*\(/,
+      /\buseEffect\s*\(/,
+      /\bReact\.Component\b/,
+      /<[A-Z][a-zA-Z]*[\s/>]/
+    ],
+    'vue': [
+      /\bref\s*\(/,
+      /\breactive\s*\(/,
+      /\bv-if\b/,
+      /\bv-for\b/
+    ],
+    'angular': [
+      /@Component\s*\(/,
+      /@Injectable\s*\(/,
+      /@NgModule\s*\(/,
+      /\bngOnInit\b/
+    ],
+    'express': [
+      /\bapp\.get\s*\(/,
+      /\bapp\.post\s*\(/,
+      /\breq\.(params|query|body)\b/,
+      /\bres\.(send|json|status)\b/
+    ],
+    'django': [
+      /\bfrom\s+django\./,
+      /\bmodels\.Model\b/,
+      /\b@login_required\b/
+    ],
+    'flask': [
+      /\bfrom\s+flask\s+import\b/,
+      /\b@app\.route\b/,
+      /\brender_template\b/
+    ],
+    'spring': [
+      /\b@RestController\b/,
+      /\b@Service\b/,
+      /\b@Autowired\b/
+    ]
+  };
+
+  // Technology signatures (kept for fast detection)
+  private static readonly TECH_SIGNATURES: Record<string, RegExp[]> = {
+    'docker': [
+      /\bFROM\s+[\w:.-]+/,
+      /\bRUN\s+/,
+      /\bEXPOSE\s+\d+/
+    ],
+    'kubernetes': [
+      /\bapiVersion:\s*[\w/]+/,
+      /\bkind:\s*(Deployment|Service|Pod)/,
+      /\bkubectl\s+/
+    ],
+    'sql': [
+      /\bSELECT\s+.*\bFROM\b/i,
+      /\bINSERT\s+INTO\b/i,
+      /\bJOIN\b/i
+    ],
+    'graphql': [
+      /\btype\s+Query\s*{/,
+      /\btype\s+Mutation\s*{/,
+      /\bresolvers\s*[=:]/
+    ],
+    'terraform': [
+      /\bresource\s+"[\w_]+"/,
+      /\bprovider\s+"[\w_]+"/,
+      /\bterraform\s*{/
+    ]
+  };
+
+  constructor() {
+    log.info('DomainExtractor initialized with hybrid pattern+semantic analysis', {
+      technologyMappings: Object.keys(DomainExtractor.TECHNOLOGY_DOMAINS).length,
+      frameworkPatterns: Object.keys(DomainExtractor.FRAMEWORK_PATTERNS).length,
+      domainExemplars: DOMAIN_EXEMPLARS.length
     });
   }
 
   /**
-   * Extract domain tags from content
+   * Set embedding service for semantic analysis (lazy initialization)
+   */
+  setEmbeddingService(embeddingService: EmbeddingService): void {
+    this.embeddingService = embeddingService;
+    log.debug('EmbeddingService set for semantic domain analysis');
+  }
+
+  /**
+   * Initialize domain embeddings cache by loading pre-computed embeddings
+   * Falls back to runtime generation if msgpack file is not available
+   */
+  private async initializeDomainEmbeddings(): Promise<void> {
+    if (this.domainEmbeddingsCache.size > 0 || this.isInitializingEmbeddings) {
+      return; // Already loaded
+    }
+
+    this.isInitializingEmbeddings = true;
+    const timer = log.time('domain-embeddings-load');
+
+    try {
+      // FAST PATH: Try to load pre-computed embeddings from msgpack
+      const __dirname = path.dirname(fileURLToPath(import.meta.url));
+      const embeddingsPath = path.join(__dirname, '../generated/domain-embeddings.msgpack');
+      
+      log.debug('Loading pre-computed domain embeddings', {
+        path: embeddingsPath
+      });
+      
+      const buffer = readFileSync(embeddingsPath);
+      const embeddings = decode(buffer) as Record<string, number[]>;
+      
+      for (const [domain, embedding] of Object.entries(embeddings)) {
+        this.domainEmbeddingsCache.set(domain, embedding);
+      }
+      
+      timer();
+      log.info('Loaded pre-computed domain embeddings from msgpack', {
+        cachedDomains: this.domainEmbeddingsCache.size,
+        source: 'msgpack',
+        path: path.basename(embeddingsPath)
+      });
+      
+    } catch (error: any) {
+      log.warn('Failed to load pre-computed embeddings, falling back to runtime generation', {
+        error: error.message
+      });
+      
+      // FALLBACK: Generate at runtime if msgpack loading fails
+      if (!this.embeddingService) {
+        log.error('No embedding service available and msgpack loading failed');
+        this.isInitializingEmbeddings = false;
+        return;
+      }
+      
+      try {
+        log.info('Generating domain embeddings at runtime (fallback)', {
+          domainCount: DOMAIN_EXEMPLARS.length
+        });
+        
+        for (const exemplar of DOMAIN_EXEMPLARS) {
+          try {
+            const embedding = await this.embeddingService.embedQuery(exemplar.description);
+            this.domainEmbeddingsCache.set(exemplar.domain, embedding);
+          } catch (err: any) {
+            log.warn(`Failed to generate embedding for domain: ${exemplar.domain}`, err);
+          }
+        }
+        
+        timer();
+        log.info('Generated domain embeddings at runtime (fallback)', {
+          cachedDomains: this.domainEmbeddingsCache.size,
+          source: 'runtime-generation'
+        });
+      } catch (genError: any) {
+        log.error('Failed to generate domain embeddings at runtime', genError);
+      }
+    } finally {
+      this.isInitializingEmbeddings = false;
+    }
+  }
+
+  /**
+   * Extract domain tags from content using hybrid approach
    */
   async extractDomainTags(
     content: string,
@@ -33,147 +242,148 @@ export class DomainExtractor {
     const timer = log.time(`domain-extract-${path.basename(filePath)}`);
 
     try {
-      log.debug('Starting domain extraction', {
+      log.debug('Starting hybrid domain extraction', {
         filePath: path.basename(filePath),
         language,
         contentLength: content.length
       });
 
-      // Refresh vocabularies if needed
-      this.refreshVocabulariesIfNeeded();
-
-      // Extract domains using multiple strategies
+      // FAST PATH: Pattern-based extraction
       const pathDomains = this.extractFromPath(filePath);
       const languageDomains = this.extractFromLanguage(language);
       const contentDomains = this.extractFromContent(content);
       const contextDomains = this.extractFromContext(content, filePath);
 
-      // Combine and score all detected domains
+      // Combine pattern-based scores
       const domainScores = new Map<string, number>();
 
-      // Add path-based domains with high confidence
       for (const domain of pathDomains) {
         domainScores.set(domain, (domainScores.get(domain) || 0) + 0.8);
       }
 
-      // Add language-based domains with medium confidence
       for (const domain of languageDomains) {
         domainScores.set(domain, (domainScores.get(domain) || 0) + 0.6);
       }
 
-      // Add content-based domains with variable confidence
       for (const [domain, score] of contentDomains) {
         domainScores.set(domain, (domainScores.get(domain) || 0) + score);
       }
 
-      // Add context-based domains
       for (const [domain, score] of contextDomains) {
         domainScores.set(domain, (domainScores.get(domain) || 0) + score);
       }
 
+      // Calculate average confidence from pattern matching
+      const avgConfidence = domainScores.size > 0
+        ? Array.from(domainScores.values()).reduce((sum, score) => sum + score, 0) / domainScores.size
+        : 0;
+
+      // SEMANTIC PATH: Only if pattern confidence is low or to enhance results
+      if (avgConfidence < 0.7 && this.embeddingService && content.length > 100) {
+        try {
+          await this.initializeDomainEmbeddings();
+          const semanticDomains = await this.extractFromSemantics(content);
+          
+          // Merge semantic scores with pattern scores
+          for (const [domain, score] of semanticDomains) {
+            const currentScore = domainScores.get(domain) || 0;
+            // Semantic analysis adds confidence when patterns are weak
+            domainScores.set(domain, currentScore + score * 0.4);
+          }
+
+          log.debug('Applied semantic domain enhancement', {
+            filePath: path.basename(filePath),
+            semanticDomainsFound: semanticDomains.size,
+            avgPatternConfidence: avgConfidence.toFixed(3)
+          });
+        } catch (error: any) {
+          log.debug('Semantic analysis skipped or failed', {
+            filePath: path.basename(filePath),
+            reason: error.message
+          });
+        }
+      }
+
       // Filter and sort by confidence
       const finalDomains = Array.from(domainScores.entries())
-        .filter(([, score]) => score >= 0.3) // Minimum confidence threshold
-        .sort(([, a], [, b]) => b - a) // Sort by confidence descending
-        .slice(0, 5) // Limit to top 5 domains
+        .filter(([, score]) => score >= 0.3)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 8)
         .map(([domain]) => domain);
 
       timer();
       log.debug('Domain extraction completed', {
         filePath: path.basename(filePath),
         detectedDomains: finalDomains,
-        totalCandidates: domainScores.size
+        totalCandidates: domainScores.size,
+        usedSemantics: avgConfidence < 0.7 && this.embeddingService !== null
       });
 
       return finalDomains;
 
     } catch (error: any) {
       log.error('Domain extraction failed', error, {
-        filePath: path.basename(filePath),
-        contentLength: content.length
+        filePath: path.basename(filePath)
       });
       return [];
     }
   }
 
   /**
-   * Classify query intent by detecting domains
+   * Classify query intent using hybrid approach
    */
   async classifyQueryIntent(query: string): Promise<DomainMatch[]> {
     const timer = log.time(`query-intent-${query.substring(0, 20)}`);
 
     try {
-      log.debug('Classifying query intent', {
+      log.debug('Classifying query intent with hybrid approach', {
         query: query.substring(0, 50),
         queryLength: query.length
       });
 
-      // Refresh vocabularies if needed
-      this.refreshVocabulariesIfNeeded();
+      // FAST PATH: Pattern-based classification
+      const patternMatches = await this.classifyQueryByPatterns(query);
+      
+      // Calculate average confidence
+      const avgConfidence = patternMatches.length > 0
+        ? patternMatches.reduce((sum, m) => sum + m.confidence, 0) / patternMatches.length
+        : 0;
 
-      const queryLower = query.toLowerCase();
-      const queryWords = this.tokenizeQuery(queryLower);
-
-      const domainMatches: DomainMatch[] = [];
-
-      // Check each domain vocabulary
-      for (const [domainName, vocabulary] of this.vocabularies) {
-        const matchedKeywords: string[] = [];
-        let totalWeight = 0;
-        let maxWeight = 0;
-
-        // Check for keyword matches
-        for (const keywordData of vocabulary.keywords) {
-          const keyword = keywordData.keyword.toLowerCase();
+      // SEMANTIC PATH: If pattern confidence is low, use semantic matching
+      if (avgConfidence < 0.6 && this.embeddingService) {
+        try {
+          await this.initializeDomainEmbeddings();
+          const semanticMatches = await this.classifyQueryBySemantics(query);
           
-          if (queryWords.includes(keyword) || queryLower.includes(keyword)) {
-            matchedKeywords.push(keyword);
-            totalWeight += keywordData.weight;
-            maxWeight = Math.max(maxWeight, keywordData.weight);
-          }
-        }
-
-        // Calculate confidence based on matches
-        if (matchedKeywords.length > 0) {
-          // Confidence factors:
-          // - Number of matched keywords
-          // - Weight of matched keywords
-          // - Exact vs partial matches
-          // - Query coverage
+          // Merge results with confidence weighting
+          const merged = this.mergeQueryMatches(patternMatches, semanticMatches);
           
-          const keywordFactor = Math.min(matchedKeywords.length / 3, 1); // Up to 3 keywords = max
-          const weightFactor = Math.min(totalWeight / 2, 1); // Normalize weights
-          const coverageFactor = Math.min(
-            matchedKeywords.join(' ').length / query.length, 
-            0.8
-          ); // Max 80% coverage
+          timer();
+          log.debug('Query classification completed with semantic enhancement', {
+            query: query.substring(0, 50),
+            patternMatches: patternMatches.length,
+            semanticMatches: semanticMatches.length,
+            finalMatches: merged.length,
+            avgPatternConfidence: avgConfidence.toFixed(3)
+          });
 
-          const confidence = (keywordFactor * 0.4 + weightFactor * 0.4 + coverageFactor * 0.2);
-
-          if (confidence >= 0.2) { // Minimum confidence threshold
-            domainMatches.push({
-              domain: domainName,
-              confidence,
-              matchedKeywords,
-              boostFactor: vocabulary.boostFactor
-            });
-          }
+          return merged;
+        } catch (error: any) {
+          log.debug('Semantic query classification failed, using patterns only', {
+            query: query.substring(0, 50),
+            error: error.message
+          });
         }
       }
 
-      // Sort by confidence and limit results
-      const sortedMatches = domainMatches
-        .sort((a, b) => b.confidence - a.confidence)
-        .slice(0, 3); // Top 3 domain matches
-
       timer();
-      log.debug('Query intent classification completed', {
+      log.debug('Query classification completed with patterns only', {
         query: query.substring(0, 50),
-        detectedDomains: sortedMatches.map(m => m.domain),
-        confidences: sortedMatches.map(m => m.confidence.toFixed(3))
+        matches: patternMatches.length,
+        avgConfidence: avgConfidence.toFixed(3)
       });
 
-      return sortedMatches;
+      return patternMatches;
 
     } catch (error: any) {
       log.error('Query intent classification failed', error, {
@@ -184,20 +394,213 @@ export class DomainExtractor {
   }
 
   /**
-   * Extract domains from file path
+   * Pattern-based query classification (fast path)
    */
+  private async classifyQueryByPatterns(query: string): Promise<DomainMatch[]> {
+    const queryLower = query.toLowerCase();
+    const queryWords = this.tokenizeQuery(queryLower);
+    const domainMatches: DomainMatch[] = [];
+
+    // Check for direct technology mentions
+    for (const [tech, domains] of Object.entries(DomainExtractor.TECHNOLOGY_DOMAINS)) {
+      const techLower = tech.toLowerCase();
+      
+      if (queryWords.includes(techLower) || queryLower.includes(techLower)) {
+        for (const domain of domains) {
+          const existing = domainMatches.find(m => m.domain === domain);
+          if (existing) {
+            existing.confidence = Math.min(1.0, existing.confidence + 0.3);
+            if (!existing.matchedKeywords.includes(tech)) {
+              existing.matchedKeywords.push(tech);
+            }
+          } else {
+            domainMatches.push({
+              domain,
+              confidence: 0.7,
+              matchedKeywords: [tech],
+              boostFactor: getBoostFactor(domain)
+            });
+          }
+        }
+      }
+    }
+
+    // Check for framework-specific terminology
+    const frameworkTerms: Record<string, string[]> = {
+      'hooks': ['react'],
+      'component': ['react', 'vue', 'angular'],
+      'directive': ['vue', 'angular'],
+      'middleware': ['express'],
+      'route': ['express', 'flask', 'django'],
+      'model': ['django'],
+      'orm': ['django'],
+      'container': ['docker'],
+      'pod': ['kubernetes'],
+      'deployment': ['kubernetes'],
+      'query': ['graphql', 'sql', 'database'],
+      'mutation': ['graphql'],
+      'authentication': ['backend', 'api'],
+      'state management': ['react', 'vue', 'frontend']
+    };
+
+    for (const [term, techs] of Object.entries(frameworkTerms)) {
+      if (queryLower.includes(term)) {
+        for (const tech of techs) {
+          const domains = DomainExtractor.TECHNOLOGY_DOMAINS[tech] || [tech];
+          for (const domain of domains) {
+            const existing = domainMatches.find(m => m.domain === domain);
+            if (existing) {
+              existing.confidence = Math.min(1.0, existing.confidence + 0.2);
+              if (!existing.matchedKeywords.includes(term)) {
+                existing.matchedKeywords.push(term);
+              }
+            } else {
+              domainMatches.push({
+                domain,
+                confidence: 0.5,
+                matchedKeywords: [term],
+                boostFactor: getBoostFactor(domain)
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return domainMatches
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, 5);
+  }
+
+  /**
+   * Semantic query classification using embeddings (slow path)
+   */
+  private async classifyQueryBySemantics(query: string): Promise<DomainMatch[]> {
+    if (!this.embeddingService || this.domainEmbeddingsCache.size === 0) {
+      return [];
+    }
+
+    try {
+      // Generate query embedding
+      const queryEmbedding = await this.embeddingService.embedQuery(query);
+      const matches: DomainMatch[] = [];
+
+      // Compare with all domain embeddings
+      for (const [domain, domainEmbedding] of this.domainEmbeddingsCache) {
+        const similarity = EmbeddingService.cosineSimilarity(queryEmbedding, domainEmbedding);
+        
+        // Only include if similarity is significant
+        if (similarity > 0.3) {
+          const exemplar = getDomainExemplar(domain);
+          matches.push({
+            domain,
+            confidence: similarity,
+            matchedKeywords: ['semantic-match'],
+            boostFactor: exemplar?.boostFactor || 1.0
+          });
+        }
+      }
+
+      return matches
+        .sort((a, b) => b.confidence - a.confidence)
+        .slice(0, 5);
+
+    } catch (error: any) {
+      log.warn('Semantic query classification failed', error);
+      return [];
+    }
+  }
+
+  /**
+   * Semantic content analysis using embeddings
+   */
+  private async extractFromSemantics(content: string): Promise<Map<string, number>> {
+    if (!this.embeddingService || this.domainEmbeddingsCache.size === 0) {
+      return new Map();
+    }
+
+    try {
+      // Sample content if too long (embeddings have token limits)
+      const sampleContent = content.length > 2000
+        ? content.substring(0, 1000) + '\n...\n' + content.substring(content.length - 1000)
+        : content;
+
+      const contentEmbedding = await this.embeddingService.embedQuery(sampleContent);
+      const semanticScores = new Map<string, number>();
+
+      // Compare with domain embeddings
+      for (const [domain, domainEmbedding] of this.domainEmbeddingsCache) {
+        const similarity = EmbeddingService.cosineSimilarity(contentEmbedding, domainEmbedding);
+        
+        if (similarity > 0.25) {
+          semanticScores.set(domain, similarity);
+        }
+      }
+
+      return semanticScores;
+
+    } catch (error: any) {
+      log.debug('Semantic content analysis failed', { error: error.message });
+      return new Map();
+    }
+  }
+
+  /**
+   * Merge pattern and semantic query matches
+   */
+  private mergeQueryMatches(
+    patternMatches: DomainMatch[],
+    semanticMatches: DomainMatch[]
+  ): DomainMatch[] {
+    const merged = new Map<string, DomainMatch>();
+
+    // Add pattern matches with higher weight
+    for (const match of patternMatches) {
+      merged.set(match.domain, {
+        ...match,
+        confidence: match.confidence * 0.7 // Pattern weight
+      });
+    }
+
+    // Add or enhance with semantic matches
+    for (const match of semanticMatches) {
+      const existing = merged.get(match.domain);
+      if (existing) {
+        // Boost confidence when both patterns and semantics agree
+        existing.confidence = Math.min(1.0, existing.confidence + match.confidence * 0.5);
+        existing.matchedKeywords.push(...match.matchedKeywords);
+      } else {
+        // Pure semantic match
+        merged.set(match.domain, {
+          ...match,
+          confidence: match.confidence * 0.6 // Semantic-only weight
+        });
+      }
+    }
+
+    return Array.from(merged.values())
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, 5);
+  }
+
+  // Pattern-based extraction methods (kept from original implementation)
+
   private extractFromPath(filePath: string): string[] {
     const pathLower = filePath.toLowerCase();
     const domains: string[] = [];
 
-    // Check for framework/library names in path
-    const pathIndicators = {
-      'javascript': ['js', 'node', 'npm'],
-      'web-frameworks': ['express', 'react', 'vue', 'angular', 'next', 'nuxt'],
-      'python': ['python', 'py', 'pip', 'django', 'flask'],
-      'databases': ['db', 'database', 'sql', 'mongo', 'postgres', 'mysql'],
-      'devops': ['docker', 'k8s', 'kubernetes', 'ci', 'cd', 'deploy'],
-      'testing': ['test', 'spec', '__tests__', 'cypress', 'jest']
+    for (const [tech, techDomains] of Object.entries(DomainExtractor.TECHNOLOGY_DOMAINS)) {
+      if (pathLower.includes(tech)) {
+        domains.push(...techDomains.slice(0, 2));
+      }
+    }
+
+    const pathIndicators: Record<string, string[]> = {
+      'javascript': ['js/', '/js/', 'node/', 'npm/'],
+      'frontend': ['frontend/', 'client/', 'ui/', 'components/'],
+      'backend': ['backend/', 'server/', 'api/'],
+      'testing': ['test/', 'tests/', '__tests__/', 'spec/'],
+      'devops': ['docker', 'k8s/', 'deploy/', 'infra/']
     };
 
     for (const [domain, indicators] of Object.entries(pathIndicators)) {
@@ -206,67 +609,70 @@ export class DomainExtractor {
       }
     }
 
-    return domains;
+    return [...new Set(domains)];
   }
 
-  /**
-   * Extract domains from programming language
-   */
   private extractFromLanguage(language: string): string[] {
-    const languageMap: { [key: string]: string[] } = {
+    const languageMap: Record<string, string[]> = {
       'javascript': ['javascript', 'web-frameworks'],
-      'typescript': ['javascript', 'web-frameworks'],
-      'python': ['python'],
+      'typescript': ['typescript', 'javascript', 'web-frameworks'],
+      'python': ['python', 'backend'],
       'java': ['java', 'enterprise'],
-      'csharp': ['dotnet', 'enterprise'],
-      'go': ['go', 'backend'],
+      'go': ['golang', 'backend'],
       'rust': ['rust', 'systems'],
-      'php': ['php', 'web-frameworks'],
-      'ruby': ['ruby', 'web-frameworks'],
       'shell': ['devops', 'automation'],
-      'sql': ['databases'],
       'yaml': ['devops', 'configuration'],
-      'json': ['configuration', 'api'],
-      'html': ['web-frontend'],
-      'css': ['web-frontend']
+      'html': ['frontend', 'web'],
+      'css': ['frontend', 'web']
     };
 
     return languageMap[language.toLowerCase()] || [];
   }
 
-  /**
-   * Extract domains from content analysis
-   */
   private extractFromContent(content: string): Map<string, number> {
-    const contentLower = content.toLowerCase();
     const domainScores = new Map<string, number>();
 
-    // Analyze content for each vocabulary
-    for (const [domainName, vocabulary] of this.vocabularies) {
-      let domainScore = 0;
-      let matchCount = 0;
+    // Extract from imports
+    const importDomains = this.extractFromImports(content);
+    for (const [domain, score] of importDomains) {
+      domainScores.set(domain, (domainScores.get(domain) || 0) + score);
+    }
 
-      for (const keywordData of vocabulary.keywords) {
-        const keyword = keywordData.keyword.toLowerCase();
-        const regex = new RegExp(`\\b${this.escapeRegExp(keyword)}\\b`, 'gi');
-        const matches = contentLower.match(regex);
+    // Detect framework patterns
+    const frameworkDomains = this.detectFrameworkPatterns(content);
+    for (const [domain, score] of frameworkDomains) {
+      domainScores.set(domain, (domainScores.get(domain) || 0) + score);
+    }
 
-        if (matches) {
-          const keywordScore = matches.length * keywordData.weight * 0.1;
-          domainScore += keywordScore;
-          matchCount++;
-        }
-      }
+    // Detect technology signatures
+    const techDomains = this.detectTechnologySignatures(content);
+    for (const [domain, score] of techDomains) {
+      domainScores.set(domain, (domainScores.get(domain) || 0) + score);
+    }
 
-      // Normalize score by vocabulary size and content length
-      if (matchCount > 0) {
-        const normalizedScore = Math.min(
-          domainScore / Math.log(content.length + 1000) * 100,
-          1.0
-        );
+    return domainScores;
+  }
+
+  private extractFromImports(content: string): Map<string, number> {
+    const domainScores = new Map<string, number>();
+
+    const jsImportPatterns = [
+      /import\s+.*?['"`]([^'"`]+)['"`]/g,
+      /require\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g,
+      /from\s+['"`]([^'"`]+)['"`]/g
+    ];
+
+    for (const pattern of jsImportPatterns) {
+      let match;
+      while ((match = pattern.exec(content)) !== null) {
+        const importPath = match[1].toLowerCase();
+        const packageName = importPath.split('/')[0].replace('@', '');
         
-        if (normalizedScore >= 0.1) {
-          domainScores.set(domainName, normalizedScore);
+        if (DomainExtractor.TECHNOLOGY_DOMAINS[packageName]) {
+          const domains = DomainExtractor.TECHNOLOGY_DOMAINS[packageName];
+          for (const domain of domains) {
+            domainScores.set(domain, (domainScores.get(domain) || 0) + 0.4);
+          }
         }
       }
     }
@@ -274,186 +680,113 @@ export class DomainExtractor {
     return domainScores;
   }
 
-  /**
-   * Extract domains from contextual analysis
-   */
-  private extractFromContext(content: string, filePath: string): Map<string, number> {
-    const contextScores = new Map<string, number>();
+  private detectFrameworkPatterns(content: string): Map<string, number> {
+    const domainScores = new Map<string, number>();
 
-    // Analyze import statements and dependencies
-    const importPatterns = [
-      /import\s+.*?['"`]([^'"`]+)['"`]/g,
-      /require\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g,
-      /from\s+['"`]([^'"`]+)['"`]/g
-    ];
+    for (const [framework, patterns] of Object.entries(DomainExtractor.FRAMEWORK_PATTERNS)) {
+      let matchCount = 0;
+      
+      for (const pattern of patterns) {
+        if (pattern.test(content)) {
+          matchCount++;
+        }
+      }
 
-    for (const pattern of importPatterns) {
-      let match;
-      while ((match = pattern.exec(content)) !== null) {
-        const importPath = match[1].toLowerCase();
+      if (matchCount > 0) {
+        const confidence = Math.min(matchCount * 0.15, 0.6);
         
-        // Map common imports to domains
-        if (importPath.includes('express')) {
-          contextScores.set('web-frameworks', (contextScores.get('web-frameworks') || 0) + 0.3);
-        } else if (importPath.includes('react')) {
-          contextScores.set('web-frameworks', (contextScores.get('web-frameworks') || 0) + 0.3);
-        } else if (importPath.includes('vue')) {
-          contextScores.set('web-frameworks', (contextScores.get('web-frameworks') || 0) + 0.3);
-        } else if (importPath.includes('angular')) {
-          contextScores.set('web-frameworks', (contextScores.get('web-frameworks') || 0) + 0.3);
-        } else if (importPath.includes('django') || importPath.includes('flask')) {
-          contextScores.set('python', (contextScores.get('python') || 0) + 0.3);
-          contextScores.set('web-frameworks', (contextScores.get('web-frameworks') || 0) + 0.2);
+        if (DomainExtractor.TECHNOLOGY_DOMAINS[framework]) {
+          const domains = DomainExtractor.TECHNOLOGY_DOMAINS[framework];
+          for (const domain of domains) {
+            domainScores.set(domain, (domainScores.get(domain) || 0) + confidence);
+          }
         }
       }
     }
 
-    // Analyze package.json or requirements.txt content
-    if (filePath.includes('package.json') || content.includes('"dependencies"')) {
-      contextScores.set('javascript', (contextScores.get('javascript') || 0) + 0.4);
-      if (content.includes('express')) {
-        contextScores.set('web-frameworks', (contextScores.get('web-frameworks') || 0) + 0.4);
+    return domainScores;
+  }
+
+  private detectTechnologySignatures(content: string): Map<string, number> {
+    const domainScores = new Map<string, number>();
+
+    for (const [tech, patterns] of Object.entries(DomainExtractor.TECH_SIGNATURES)) {
+      let matchCount = 0;
+      
+      for (const pattern of patterns) {
+        if (pattern.test(content)) {
+          matchCount++;
+        }
       }
-    } else if (filePath.includes('requirements.txt') || filePath.includes('Pipfile')) {
-      contextScores.set('python', (contextScores.get('python') || 0) + 0.4);
+
+      if (matchCount > 0) {
+        const confidence = Math.min(matchCount * 0.2, 0.7);
+        
+        if (DomainExtractor.TECHNOLOGY_DOMAINS[tech]) {
+          const domains = DomainExtractor.TECHNOLOGY_DOMAINS[tech];
+          for (const domain of domains) {
+            domainScores.set(domain, (domainScores.get(domain) || 0) + confidence);
+          }
+        }
+      }
     }
 
-    // Analyze Docker and infrastructure context
-    if (content.includes('FROM ') || content.includes('COPY ') || filePath.includes('dockerfile')) {
-      contextScores.set('devops', (contextScores.get('devops') || 0) + 0.3);
+    return domainScores;
+  }
+
+  private extractFromContext(content: string, filePath: string): Map<string, number> {
+    const contextScores = new Map<string, number>();
+
+    if (filePath.includes('package.json') || content.includes('"dependencies"')) {
+      contextScores.set('javascript', 0.5);
+      contextScores.set('nodejs', 0.4);
+    }
+
+    if (filePath.includes('requirements.txt') || filePath.includes('Pipfile')) {
+      contextScores.set('python', 0.5);
+    }
+
+    if (filePath.toLowerCase().includes('dockerfile') || content.includes('FROM ')) {
+      contextScores.set('docker', 0.6);
+      contextScores.set('containerization', 0.5);
+      contextScores.set('devops', 0.4);
+    }
+
+    if (content.includes('apiVersion:') && content.includes('kind:')) {
+      contextScores.set('kubernetes', 0.7);
+      contextScores.set('k8s', 0.7);
+      contextScores.set('orchestration', 0.5);
     }
 
     return contextScores;
   }
 
-  /**
-   * Load vocabularies from database
-   */
-  private loadVocabularies(): void {
-    try {
-      const stmt = this.db.prepare(`
-        SELECT domain, keywords, authority_patterns, boost_factor
-        FROM domain_vocabulary
-        ORDER BY domain
-      `);
-
-      const rows = stmt.all() as Array<{
-        domain: string;
-        keywords: string;
-        authority_patterns: string;
-        boost_factor: number;
-      }>;
-
-      this.vocabularies.clear();
-
-      for (const row of rows) {
-        try {
-          const vocabulary: DomainVocabulary = {
-            domain: row.domain,
-            keywords: JSON.parse(row.keywords) as KeywordWeight[],
-            authorityPatterns: JSON.parse(row.authority_patterns) as string[],
-            boostFactor: row.boost_factor
-          };
-
-          this.vocabularies.set(row.domain, vocabulary);
-        } catch (parseError: any) {
-          log.warn('Failed to parse vocabulary data for domain: ' + row.domain, parseError);
-        }
-      }
-
-      this.lastVocabularyUpdate = Date.now();
-
-      log.info('Domain vocabularies loaded', {
-        count: this.vocabularies.size,
-        domains: Array.from(this.vocabularies.keys())
-      });
-
-    } catch (error: any) {
-      log.error('Failed to load domain vocabularies', error);
-    }
-  }
-
-  /**
-   * Refresh vocabularies if cache is stale
-   */
-  private refreshVocabulariesIfNeeded(): void {
-    if (Date.now() - this.lastVocabularyUpdate > this.CACHE_TTL) {
-      this.loadVocabularies();
-    }
-  }
-
-  /**
-   * Tokenize query into words
-   */
   private tokenizeQuery(query: string): string[] {
     return query
       .toLowerCase()
-      .replace(/[^\w\s]/g, ' ') // Replace punctuation with spaces
-      .split(/\s+/) // Split on whitespace
-      .filter(word => word.length > 1); // Filter out single characters
+      .replace(/[^\w\s-]/g, ' ')
+      .split(/\s+/)
+      .filter(word => word.length > 1);
   }
 
-  /**
-   * Escape regex special characters
-   */
-  private escapeRegExp(string: string): string {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
-  /**
-   * Add or update domain vocabulary
-   */
-  async addVocabulary(vocabulary: DomainVocabulary): Promise<void> {
-    try {
-      const stmt = this.db.prepare(`
-        INSERT OR REPLACE INTO domain_vocabulary (domain, keywords, authority_patterns, boost_factor)
-        VALUES (?, ?, ?, ?)
-      `);
-
-      stmt.run(
-        vocabulary.domain,
-        JSON.stringify(vocabulary.keywords),
-        JSON.stringify(vocabulary.authorityPatterns),
-        vocabulary.boostFactor
-      );
-
-      // Update in-memory cache
-      this.vocabularies.set(vocabulary.domain, vocabulary);
-
-      log.info('Domain vocabulary updated', {
-        domain: vocabulary.domain,
-        keywordCount: vocabulary.keywords.length
-      });
-
-    } catch (error: any) {
-      log.error('Failed to add domain vocabulary', error, {
-        domainName: vocabulary.domain
-      });
-      throw error;
-    }
-  }
-
-  /**
-   * Get all available domains
-   */
-  getDomains(): string[] {
-    this.refreshVocabulariesIfNeeded();
-    return Array.from(this.vocabularies.keys());
-  }
-
-  /**
-   * Get vocabulary for a specific domain
-   */
-  getVocabulary(domain: string): DomainVocabulary | undefined {
-    this.refreshVocabulariesIfNeeded();
-    return this.vocabularies.get(domain);
-  }
-
-  /**
-   * Get boost factor for a domain
-   */
   getBoostFactor(domain: string): number {
-    const vocabulary = this.getVocabulary(domain);
-    return vocabulary?.boostFactor || 1.0;
+    return getBoostFactor(domain);
+  }
+
+  getDomains(): string[] {
+    const allDomains = new Set<string>();
+    
+    for (const domains of Object.values(DomainExtractor.TECHNOLOGY_DOMAINS)) {
+      for (const domain of domains) {
+        allDomains.add(domain);
+      }
+    }
+    
+    // Add domains from exemplars
+    for (const exemplar of DOMAIN_EXEMPLARS) {
+      allDomains.add(exemplar.domain);
+    }
+    
+    return Array.from(allDomains).sort();
   }
 }
